@@ -1,0 +1,16 @@
+// Navly 自定义扩展变量（统一以 --navly- 前缀）
+// Element Plus 内置变量（--el-*）不在此重复定义，直接使用即可
+
+:root {
+  // 布局尺寸
+  --navly-nav-height: 56px;
+  --navly-sidebar-width: 220px;
+  --navly-sidebar-collapsed-width: 64px;
+  --navly-content-max-width: 1400px;
+
+  // 组件特定变量
+  --navly-card-hover-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --navly-icon-size-sm: 24px;
+  --navly-icon-size-md: 40px;
+  --navly-icon-size-lg: 56px;
+}

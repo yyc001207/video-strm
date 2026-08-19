@@ -1,0 +1,18 @@
+# video-strm Docker Compose 示例
+# 使用：复制为 docker-compose.yml 并按需修改，然后 docker compose up -d
+services:
+  video-strm:
+    image: yyc001207/video-strm:latest
+    container_name: video-strm
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data                 # SQLite 数据库持久化
+      - ./openlist_logs:/app/openlist_logs  # 执行日志持久化
+      - ./output:/app/output             # STRM/字幕输出目录：任务输出目录以 / 开头（如 /emby/电视剧）
+                                         # 时写入 /app/output/emby/电视剧，映射后宿主机 ./output 下可见
+    environment:
+      - TZ=Asia/Shanghai
+      # 前后端同源部署无需配置 CORS；若前端与后端分离部署，取消注释并按需修改：
+      # - ALLOWED_ORIGINS=["http://your-frontend:5173"]

@@ -1,0 +1,7 @@
+// Element Plus 暗黑模式变量
+@use 'element-plus/theme-chalk/dark/css-vars.css';
+
+// 原生控件（滚动条/输入框等）跟随暗黑主题
+html.dark {
+  color-scheme: dark;
+}

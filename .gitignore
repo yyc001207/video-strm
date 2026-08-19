@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# Runtime data
+backend/data/
+backend/openlist_logs/
+backend/output/
+backend/tests/.test-data/
+
+# Env
+.env
+
+# Logs
+*.log

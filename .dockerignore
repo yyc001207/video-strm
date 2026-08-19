@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+.github
+
+# Node 依赖与构建产物（builder 阶段会重新安装/构建）
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# Python
+backend/.venv
+backend/__pycache__
+backend/**/__pycache__
+backend/.pytest_cache
+backend/tests
+backend/pytest.ini
+backend/requirements-dev.txt
+**/*.pyc
+
+# 运行时数据与本地配置（不应打进镜像）
+backend/data
+backend/openlist_logs
+backend/output
+backend/.env
+**/*.db
+**/*.sqlite3
+**/*.log
