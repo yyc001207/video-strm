@@ -29,8 +29,12 @@ const form = reactive({
 async function load() {
   loading.value = true
   try {
-    // 任务与预设并行加载：预设用于弹窗「选择预设自动填充」下拉
-    const [tasksRes] = await Promise.all([openlistApi.listTasks(keyword.value || undefined), store.fetchPresets()])
+    // 任务、预设与全局配置并行加载：预设用于弹窗「选择预设自动填充」下拉，配置用于取前缀
+    const [tasksRes] = await Promise.all([
+      openlistApi.listTasks(keyword.value || undefined),
+      store.fetchPresets(),
+      store.fetchConfig()
+    ])
     list.value = tasksRes.data.list
   } finally {
     loading.value = false
@@ -63,16 +67,22 @@ function openEdit(row: OpenListTask) {
   dialogVisible.value = true
 }
 
+/** 前缀拼接：前缀为空则原样返回；路径已带此前缀则不重复拼接；否则前缀 + 去头斜杠的路径。 */
+function applyPrefix(prefix: string, path: string): string {
+  const p = prefix.trim().replace(/\/+$/, '')
+  if (!p) return path
+  if (path === p || path.startsWith(`${p}/`)) return path
+  return `${p}/${path.replace(/^\/+/, '')}`
+}
+
 watch(
   () => form.preset_id,
   presetId => {
     const preset: OpenListPreset | undefined = store.presets.find(p => p.id === presetId)
     if (preset) {
-      // 处理路径补 emby 前缀（预设路径如 /test/tv -> /emby/test/tv）；输出目录保持预设路径原样
-      form.process_path = preset.preset_path.startsWith('/emby')
-        ? preset.preset_path
-        : `/emby${preset.preset_path}`
-      form.output_dir = preset.preset_path
+      // 处理路径/输出目录按全局配置前缀拼接（默认空则保持预设路径原样，不再硬编码 emby 前缀）
+      form.process_path = applyPrefix(store.config?.process_path_prefix ?? '', preset.preset_path)
+      form.output_dir = applyPrefix(store.config?.output_dir_prefix ?? '', preset.preset_path)
     }
   }
 )
@@ -215,10 +225,10 @@ defineExpose({ reload: load })
           <el-select v-model="form.preset_id" placeholder="选择预设自动填充" clearable class="task-manage__preset">
             <el-option v-for="p in store.presets" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
-          <div class="task-manage__remark">选择后自动填充处理路径与输出目录</div>
+          <div class="task-manage__remark">选择后自动填充处理路径与输出目录（前缀取自全局配置，默认空）</div>
         </el-form-item>
         <el-form-item label="处理路径">
-          <el-input v-model="form.process_path" placeholder="如：/emby/电视剧" maxlength="512" />
+          <el-input v-model="form.process_path" placeholder="如：/电视剧" maxlength="512" />
         </el-form-item>
         <el-form-item label="输出目录">
           <el-input v-model="form.output_dir" placeholder="如：/tv" maxlength="512" />

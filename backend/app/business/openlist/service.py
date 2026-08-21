@@ -190,11 +190,13 @@ async def get_config(db: AsyncSession) -> dict:
         "pause_time": config.pause_time or DEFAULT_PAUSE_TIME,
         "disable_ssl_verify": config.disable_ssl_verify,
         "log_to_db": config.log_to_db,
+        "process_path_prefix": config.process_path_prefix or "",
+        "output_dir_prefix": config.output_dir_prefix or "",
     }
 
 
 async def update_config(db: AsyncSession, data: OpenListConfigUpdate) -> dict:
-    """保存全局配置（视频/字幕格式 + 并发度 + 限流 + SSL 开关）；更新后调整并发信号量。"""
+    """保存全局配置（视频/字幕格式 + 并发度 + 限流 + SSL 开关 + 前缀）；更新后调整并发信号量。"""
     config = await _load_config(db)
     if data.video_formats is not None:
         config.video_formats = data.video_formats
@@ -210,6 +212,10 @@ async def update_config(db: AsyncSession, data: OpenListConfigUpdate) -> dict:
         config.disable_ssl_verify = data.disable_ssl_verify
     if data.log_to_db is not None:
         config.log_to_db = data.log_to_db
+    if data.process_path_prefix is not None:
+        config.process_path_prefix = data.process_path_prefix.strip() or None
+    if data.output_dir_prefix is not None:
+        config.output_dir_prefix = data.output_dir_prefix.strip() or None
     await db.commit()
     await db.refresh(config)
     set_semaphore_size(config.max_concurrent or DEFAULT_MAX_CONCURRENT)

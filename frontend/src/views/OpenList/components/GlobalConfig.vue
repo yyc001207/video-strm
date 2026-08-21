@@ -18,7 +18,7 @@ const serverForm = reactive({ name: '', server_url: '', token: '' })
 // 全局配置弹窗
 const configDialogVisible = ref(false)
 const savingConfig = ref(false)
-const configForm = reactive({ video_formats: '', subtitle_formats: '', max_concurrent: 1, pause_count: 50, pause_time: '0,3,5', disable_ssl_verify: false, log_to_db: false })
+const configForm = reactive({ video_formats: '', subtitle_formats: '', max_concurrent: 1, pause_count: 50, pause_time: '0,3,5', disable_ssl_verify: false, log_to_db: false, process_path_prefix: '', output_dir_prefix: '' })
 
 async function load() {
   loading.value = true
@@ -101,6 +101,8 @@ function openEditConfig() {
   configForm.pause_time = config.value.pause_time ?? '0,3,5'
   configForm.disable_ssl_verify = config.value.disable_ssl_verify ?? false
   configForm.log_to_db = config.value.log_to_db ?? false
+  configForm.process_path_prefix = config.value.process_path_prefix ?? ''
+  configForm.output_dir_prefix = config.value.output_dir_prefix ?? ''
   configDialogVisible.value = true
 }
 
@@ -114,7 +116,9 @@ async function handleSaveConfig() {
       pause_count: configForm.pause_count,
       pause_time: configForm.pause_time.trim(),
       disable_ssl_verify: configForm.disable_ssl_verify,
-      log_to_db: configForm.log_to_db
+      log_to_db: configForm.log_to_db,
+      process_path_prefix: configForm.process_path_prefix.trim(),
+      output_dir_prefix: configForm.output_dir_prefix.trim()
     })
     ElMessage.success('全局配置已保存')
     configDialogVisible.value = false
@@ -195,6 +199,8 @@ defineExpose({ reload: load })
               {{ config.log_to_db ? '开启（双写）' : '关闭（仅写文件）' }}
             </el-tag>
           </el-descriptions-item>
+          <el-descriptions-item label="处理路径前缀">{{ config.process_path_prefix || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="输出目录前缀">{{ config.output_dir_prefix || '—' }}</el-descriptions-item>
         </el-descriptions>
       </div>
     </el-card>
@@ -250,6 +256,14 @@ defineExpose({ reload: load })
         <el-form-item label="日志写入数据库">
           <el-switch v-model="configForm.log_to_db" />
           <div class="global-config__remark">默认关闭（仅写日志文件，DB 不再积累日志）；需结构化日志时开启</div>
+        </el-form-item>
+        <el-form-item label="处理路径前缀">
+          <el-input v-model="configForm.process_path_prefix" placeholder="如：/emby（默认空）" maxlength="128" />
+          <div class="global-config__remark">选择预设时自动拼接到处理路径前，默认空则不拼接</div>
+        </el-form-item>
+        <el-form-item label="输出目录前缀">
+          <el-input v-model="configForm.output_dir_prefix" placeholder="如：/volume1/media（默认空）" maxlength="128" />
+          <div class="global-config__remark">选择预设时自动拼接到输出目录前，默认空则不拼接</div>
         </el-form-item>
       </el-form>
       <template #footer>

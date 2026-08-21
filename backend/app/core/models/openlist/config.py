@@ -23,6 +23,8 @@ class OpenListConfig(Base):
     pause_time: Mapped[str] = mapped_column(String(512), nullable=False, default="0,3,5", comment="暂停时间（秒，逗号分隔）")
     disable_ssl_verify: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否禁用 SSL 证书验证（默认 False=校验，应对自签名证书时开启）")
     log_to_db: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否将执行日志写入数据库（默认 False=只写日志文件）")
+    process_path_prefix: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, default=None, comment="处理路径前缀（选择预设时自动拼接，默认空）")
+    output_dir_prefix: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, default=None, comment="输出目录前缀（选择预设时自动拼接，默认空）")
     created_time: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), comment="创建时间")
     updated_time: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now(), comment="更新时间")
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="逻辑删除")

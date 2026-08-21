@@ -33,6 +33,8 @@ export interface OpenListConfig {
   pause_time: string
   disable_ssl_verify: boolean
   log_to_db: boolean
+  process_path_prefix: string
+  output_dir_prefix: string
 }
 
 export interface OpenListPreset {

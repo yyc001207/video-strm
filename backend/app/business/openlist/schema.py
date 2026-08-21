@@ -20,6 +20,8 @@ class OpenListConfigUpdate(BaseModel):
     pause_time: Optional[str] = Field(default=None, max_length=512)
     disable_ssl_verify: Optional[bool] = None
     log_to_db: Optional[bool] = None
+    process_path_prefix: Optional[str] = Field(default=None, max_length=128)
+    output_dir_prefix: Optional[str] = Field(default=None, max_length=128)
 
 
 class OpenListConfigResponse(BaseModel):
@@ -33,6 +35,8 @@ class OpenListConfigResponse(BaseModel):
     pause_time: str = "0,3,5"
     disable_ssl_verify: bool = False
     log_to_db: bool = False
+    process_path_prefix: Optional[str] = None
+    output_dir_prefix: Optional[str] = None
     created_time: Optional[datetime] = None
     updated_time: Optional[datetime] = None
 
