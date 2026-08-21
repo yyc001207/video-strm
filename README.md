@@ -5,7 +5,84 @@
 
 - **无登录**：本地直接访问，无 JWT/权限体系
 - **SQLite**：数据存本地文件，无需 MySQL/Redis
-- **前后端一体**：FastAPI 后端 + Vue 3 前端，可分开启动或前端构建后由任意静态服务器托管
+- **前后端一体**：FastAPI 后端 + Vue 3 前端，官方镜像 `yyc001207/video-strm:latest` 开箱即用
+
+## 快速部署（开箱即用）
+
+使用已发布的 Docker 镜像 `yyc001207/video-strm:latest`，无需安装 Python / Node，只需 Docker。
+
+### 环境要求
+
+- 已安装 [Docker](https://www.docker.com/)（含 Docker Compose，Docker Desktop / 群晖 Container Manager 均已内置）
+
+### 1. 准备 docker-compose.yml
+
+创建部署目录并新建 `docker-compose.yml`：
+
+```bash
+mkdir video-strm && cd video-strm
+```
+
+内容如下（也可直接复制仓库内的 `docker-compose.example.yml`）：
+
+```yaml
+services:
+  video-strm:
+    image: yyc001207/video-strm:latest
+    container_name: video-strm
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data                 # SQLite 数据库
+      - ./openlist_logs:/app/openlist_logs  # 执行日志
+      - ./output:/app/output             # STRM/字幕输出目录
+    environment:
+      - TZ=Asia/Shanghai
+```
+
+三个目录的作用：
+
+| 主机目录 | 容器目录 | 说明 |
+|----------|----------|------|
+| `./data` | `/app/data` | SQLite 数据库（任务/服务器/预设等配置） |
+| `./openlist_logs` | `/app/openlist_logs` | 每次执行的日志文件 |
+| `./output` | `/app/output` | STRM/字幕输出目录，任务输出目录以 `/` 开头（如 `/emby/电视剧`）时生成到 `/app/output/emby/电视剧` |
+
+### 2. 启动服务
+
+```bash
+docker compose up -d
+```
+
+首次启动会自动拉取镜像并创建容器，查看状态：
+
+```bash
+docker compose ps          # 状态为 Up 即正常
+docker compose logs -f     # 实时查看日志
+```
+
+### 3. 验证访问
+
+- 前端页面：http://127.0.0.1:8000（远程服务器则用 `http://<服务器IP>:8000`）
+- API 文档：http://127.0.0.1:8000/docs
+- 健康检查：http://127.0.0.1:8000/api/health（返回 `{"code": 200, ...}`）
+
+> 首次访问后按「[使用流程](#使用流程)」配置：添加 OpenList 服务器 → 创建任务 → 执行生成。
+
+### 4. 升级更新
+
+重新发布后执行以下命令即可更新到最新镜像（数据保留在 `./data` 等目录中）：
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+### 常见问题
+
+- **端口被占用**：把 `ports` 改为 `"8080:8000"`，访问地址相应变为 `http://127.0.0.1:8080`
+- **生成的文件属主是 root**：容器以 root 运行，映射目录内文件属主为 uid 0，与媒体库共用目录时注意权限
+- **想要直写宿主绝对路径**：任务输出目录以 `/` 开头会被统一收敛到 `/app/output` 下（安全设计）；如需输出到任意宿主路径，可把宿主媒体目录挂载到容器并调整任务输出目录
 
 ## 功能
 
@@ -46,10 +123,11 @@ video-strm/
 ├── .dockerignore
 ├── docker-compose.example.yml  # Docker Compose 部署示例
 ├── .github/workflows/     # GitHub Actions：自动构建并发布 Docker Hub
+├── LICENSE                # MIT 许可证
 └── README.md
 ```
 
-## 快速开始
+## 本地开发（快速开始）
 
 ### 环境要求
 
@@ -91,9 +169,9 @@ npm run preview      # 本地预览构建产物
 构建产物可由任意静态服务器托管（后端 API 地址通过 `VITE_API_BASE_URL` 配置，默认 `/api`，需自行反代或同源部署）。
 后端在检测到 `backend/frontend/dist` 存在时也会自动托管前端页面（含 SPA 回退），Docker 镜像已内置该产物，开箱即用。
 
-## Docker 部署
+## 镜像构建与自动发布
 
-### 本地构建运行
+### 本地构建镜像
 
 ```bash
 # 构建镜像（Dockerfile 多阶段：先构建前端，再打包后端运行时）
@@ -110,52 +188,39 @@ docker run -d --name video-strm \
 
 - 访问 `http://<主机>:8000` 即前端页面；API 文档 `http://<主机>:8000/docs`
 - 容器内默认 `ALLOWED_ORIGINS` 为空（同源访问无需跨域）；如前端与后端分离部署，可传环境变量覆盖：`-e 'ALLOWED_ORIGINS=["http://your-frontend:5173"]'`
-- **输出目录**：任务「输出目录」以 `/` 开头（如 `/emby/电视剧`）时，STRM/字幕统一写入 `<工作目录>/output/<去掉开头斜杠的路径>`（容器内为 `/app/output/emby/电视剧`），把主机目录挂到 `/app/output` 即可在宿主机直接看到生成结果；不以 `/` 开头的输出目录按字面相对路径写入
-- 容器以 root 运行，映射目录内生成的文件属主为 root（uid 0），如与媒体库共用目录需注意权限
 
-### Docker Compose 部署（推荐）
-
-仓库提供 `docker-compose.example.yml` 示例：
-
-```bash
-cp docker-compose.example.yml docker-compose.yml
-docker compose up -d
-```
-
-按需修改：镜像标签、端口映射、`./data` / `./openlist_logs` / `./output` 挂载路径、`TZ` 时区等（`./output` 即 STRM/字幕输出目录，见上文说明）。
-
-## GitHub Actions 自动发布 Docker Hub
+### GitHub Actions 自动发布 Docker Hub
 
 仓库已内置 `.github/workflows/docker-publish.yml`：**仅当推送 `v*` 标签（如 `v1.2.3`）时**自动构建并推送镜像。
 
-### 触发规则与镜像标签
+#### 触发规则与镜像标签
 
 | 触发 | 镜像标签 |
 |------|----------|
-| 推送标签 `v1.2.3` | `<用户名>/video-strm:latest`、`1.2.3`、`1.2`、`sha-<短哈希>` |
+| 推送标签 `v1.2.3` | `yyc001207/video-strm:latest`、`1.2.3`、`1.2`、`sha-<短哈希>` |
 | 手动 `workflow_dispatch` | 按当前 ref 生成（分支上手动触发时仅 `latest` + `sha-<短哈希>`） |
 
 - `latest` 始终指向最近一次发布的版本，便于稳定拉取
 - 默认构建 **linux/amd64 + linux/arm64** 双架构，可直接在 x86 服务器与 ARM 群晖/NAS 上运行
 - 如需单架构加速构建，删去工作流中 `platforms` 一行即可
 
-### 配置步骤（一次性）
+#### 配置步骤（一次性）
 
 1. 在 [Docker Hub](https://hub.docker.com/settings/security) 创建访问令牌（Access Token）
 2. 仓库 → **Settings → Secrets and variables → Actions** 添加两个 Secret：
    - `DOCKERHUB_USERNAME`：Docker Hub 用户名
    - `DOCKERHUB_TOKEN`：上面创建的访问令牌
-3. 推送标签（如 `git tag v1.0.0 && git push origin v1.0.0`）触发，镜像即发布到 `Docker Hub/<用户名>/video-strm`
+3. 推送标签（如 `git tag v1.0.0 && git push origin v1.0.0`）触发，镜像即发布到 `Docker Hub/yyc001207/video-strm`
 
-### 拉取部署
+#### 拉取部署
 
 ```bash
-docker pull <用户名>/video-strm:latest
+docker pull yyc001207/video-strm:latest
 docker run -d --name video-strm -p 8000:8000 \
   -v /path/to/data:/app/data \
   -v /path/to/openlist_logs:/app/openlist_logs \
   -v /path/to/output:/app/output \
-  <用户名>/video-strm:latest
+  yyc001207/video-strm:latest
 ```
 
 ## 测试
