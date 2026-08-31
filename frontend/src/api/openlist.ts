@@ -90,6 +90,10 @@ export const openlistApi = {
   refreshServerDirs(serverId: number, path?: string): Promise<Res<{ path: string; list: ServerDirItem[]; count: number }>> {
     return request.post(`/openlist/servers/${serverId}/dirs/refresh`, { path: path || undefined })
   },
+  /** 递归刷新服务器某路径下全部子目录缓存（含各层级）。 */
+  refreshServerDirsAll(serverId: number, path?: string): Promise<Res<{ root: string; count: number; scanned: number }>> {
+    return request.post(`/openlist/servers/${serverId}/dirs/refresh-all`, { path: path || undefined })
+  },
 
   /** 任务列表（含最近一次执行，可按服务器筛选）。 */
   listTasks(keyword?: string, serverId?: number | null): Promise<Res<{ list: OpenListTask[] }>> {

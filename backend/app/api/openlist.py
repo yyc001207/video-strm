@@ -141,6 +141,17 @@ async def refresh_server_dirs(
     return success_response(data={"path": path or "", "list": dirs, "count": len(dirs)})
 
 
+@router.post("/servers/{server_id}/dirs/refresh-all", summary="递归刷新路径下全部子目录缓存")
+async def refresh_server_dirs_all(
+    server_id: int,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    path = payload.get("path") or None
+    result = await service.refresh_server_dirs_recursive(db, server_id, path)
+    return success_response(data=result)
+
+
 # ---------- 任务 ----------
 # 字面量路由（delete/copy）先于 /tasks/{task_id} 注册
 

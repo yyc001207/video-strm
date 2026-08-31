@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -273,17 +274,19 @@ async def list_server_dirs(db: AsyncSession, server_id: int, path: Optional[str]
     """查询服务器某路径下的一级子目录：缓存优先，miss / 过期 / refresh 时回源拉取并写缓存。
 
     path 缺省时回退到该服务器的第一个父级目录。
+    缓存键统一去掉首尾斜杠规范化（/media/a/b 与 media/a/b 命中同一缓存）。
     """
     server = await get_server(db, server_id)
     dirs_map = await _load_server_dirs(db, [server.id])
     target = path or (dirs_map.get(server.id) or [None])[0] or "/"
+    cache_key = target.strip("/") or "/"
     if not refresh:
-        cached = dir_cache.get_cached(server.id, target)
+        cached = dir_cache.get_cached(server.id, cache_key)
         if cached is not None:
             return cached
     verify_ssl = await _get_verify_ssl(db)
     children = await _fetch_dirs(server, target, verify_ssl)
-    dir_cache.set_cache(server.id, target, children)
+    dir_cache.set_cache(server.id, cache_key, children)
     return children
 
 
@@ -294,6 +297,45 @@ async def _precache_server_dirs(db: AsyncSession, server_id: int, paths: list[st
             await list_server_dirs(db, server_id, path, refresh=True)
         except Exception:
             pass
+
+
+async def refresh_server_dirs_recursive(
+    db: AsyncSession,
+    server_id: int,
+    path: Optional[str] = None,
+    max_depth: int = 6,
+    max_dirs: int = 500,
+) -> dict:
+    """递归刷新目录缓存：从指定路径（默认第一个父级目录）起逐层强制回源并覆盖缓存。
+
+    - 同层并发拉取（信号量限流），已缓存层也强制刷新，保证数据时效
+    - max_depth / max_dirs 限制请求量，防止超大目录树打爆服务器
+    """
+    server = await get_server(db, server_id)
+    dirs_map = await _load_server_dirs(db, [server.id])
+    root = path or (dirs_map.get(server.id) or [None])[0] or "/"
+    sem = asyncio.Semaphore(8)
+
+    async def fetch(dir_path: str) -> list[dict]:
+        async with sem:
+            return await list_server_dirs(db, server.id, dir_path, refresh=True)
+
+    queue: deque = deque([(root, 0)])
+    scanned = 0
+    total_dirs = 0
+    while queue and scanned < max_dirs:
+        level_items = [queue.popleft() for _ in range(len(queue))]
+        results = await asyncio.gather(*(fetch(p) for p, _ in level_items), return_exceptions=True)
+        next_level: list[tuple[str, int]] = []
+        for (dir_path, level), children in zip(level_items, results):
+            if isinstance(children, Exception):
+                continue
+            scanned += 1
+            total_dirs += len(children)
+            if level + 1 <= max_depth:
+                next_level.extend((child["path"], level + 1) for child in children)
+        queue.extend(next_level)
+    return {"count": total_dirs, "scanned": scanned, "root": root}
 
 
 async def search_server_dirs(

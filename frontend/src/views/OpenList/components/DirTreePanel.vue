@@ -178,8 +178,9 @@ async function handleRefresh() {
   if (props.serverId == null || !props.parentDir) return
   refreshing.value = true
   try {
-    const res = await openlistApi.refreshServerDirs(props.serverId, props.parentDir)
-    ElMessage.success(`目录缓存已刷新（${res.data.count} 个子目录）`)
+    // 递归刷新当前父级目录下的全部层级子目录缓存
+    const res = await openlistApi.refreshServerDirsAll(props.serverId, props.parentDir)
+    ElMessage.success(`目录缓存已刷新（共 ${res.data.count} 个子目录，覆盖 ${res.data.scanned} 个目录层级）`)
     loadedNodes.clear()
     treeKey.value += 1
   } catch {
