@@ -38,11 +38,22 @@ async def _reset_fake():
     FakeOpenListAPI.list_calls = 0
 
 
-async def _create_task(client, name: str) -> dict:
+async def _create_server(client) -> int:
+    """新建一个测试服务器（跳过校验），返回 id。"""
+    res = await client.post(
+        "/api/openlist/servers",
+        json={"server_url": "http://127.0.0.1:5244", "token": "t", "skip_validation": True},
+    )
+    assert res.json()["code"] == 200, res.json()
+    return res.json()["data"]["id"]
+
+
+async def _create_task(client, name: str, server_id: int | None = None) -> dict:
+    """创建任务：未指定服务器时自动新建一个（seed 不再预置默认服务器）。"""
+    sid = server_id if server_id is not None else await _create_server(client)
     res = await client.post(
         "/api/openlist/tasks",
-        # server_id=1 为 seed 自动创建的默认服务器
-        json={"name": name, "output_dir": "/tv", "process_path": f"/emby/{name}", "server_id": 1},
+        json={"name": name, "output_dir": "/tv", "process_path": f"/emby/{name}", "server_id": sid},
     )
     assert res.json()["code"] == 200, res.json()
     return res.json()["data"]
@@ -103,13 +114,8 @@ async def test_task_batch_delete_missing_id_rolls_back(client):
 async def test_execution_create_and_cancel(client):
     task = await _create_task(client, "执行测试")
     res = await client.post(
-        "/api/openlist/servers",
-        json={"name": "本机", "server_url": "http://127.0.0.1:5244", "token": "t"},
-    )
-    server_id = res.json()["data"]["id"]
-    res = await client.post(
         "/api/openlist/executions",
-        json={"task_id": task["id"], "server_id": server_id},
+        json={"task_id": task["id"], "server_id": task["server_id"]},
     )
     execution = res.json()["data"]
     assert execution["status"] == "running"
@@ -277,12 +283,8 @@ async def test_dir_execution_create_and_cancel(client, monkeypatch):
 
 async def test_task_server_filter(client):
     """任务带服务器信息，可按服务器筛选。"""
-    await _create_task(client, "任务S1")  # seed 服务器 id=1
-    res = await client.post(
-        "/api/openlist/servers",
-        json={"server_url": "http://s2", "token": "t", "skip_validation": True},
-    )
-    sid2 = res.json()["data"]["id"]
+    t1 = await _create_task(client, "任务S1")  # 自动新建服务器
+    sid2 = await _create_server(client)
     res = await client.post(
         "/api/openlist/tasks",
         json={"name": "任务S2", "output_dir": "/tv", "process_path": "/x", "server_id": sid2},
@@ -292,10 +294,10 @@ async def test_task_server_filter(client):
     # 任务列表带服务器信息
     res = await client.get("/api/openlist/tasks")
     item = next(t for t in res.json()["data"]["list"] if t["name"] == "任务S1")
-    assert item["server_id"] == 1 and item["server_url"]
+    assert item["server_id"] == t1["server_id"] and item["server_url"]
 
     # 按服务器筛选
-    res = await client.get("/api/openlist/tasks", params={"server_id": 1})
+    res = await client.get("/api/openlist/tasks", params={"server_id": t1["server_id"]})
     names = [t["name"] for t in res.json()["data"]["list"]]
     assert "任务S1" in names and "任务S2" not in names
     res = await client.get("/api/openlist/tasks", params={"server_id": sid2})
@@ -305,17 +307,9 @@ async def test_task_server_filter(client):
 
 async def test_execution_server_mismatch(client):
     """执行时任务与服务器不匹配应被拒绝（强关联）。"""
-    res = await client.post(
-        "/api/openlist/servers",
-        json={"server_url": "http://s2", "token": "t", "skip_validation": True},
-    )
-    sid2 = res.json()["data"]["id"]
-    res = await client.post(
-        "/api/openlist/tasks",
-        json={"name": "错配任务", "output_dir": "/tv", "process_path": "/x", "server_id": sid2},
-    )
-    tid = res.json()["data"]["id"]
-    # 用 seed 服务器（id=1）执行任务（属于服务器2）→ 400
-    res = await client.post("/api/openlist/executions", json={"task_id": tid, "server_id": 1})
+    task = await _create_task(client, "错配任务")  # 任务绑定自动新建的服务器 A
+    sid2 = await _create_server(client)  # 服务器 B
+    # 用服务器 B 执行任务（属于服务器 A）→ 400
+    res = await client.post("/api/openlist/executions", json={"task_id": task["id"], "server_id": sid2})
     assert res.json()["code"] == 400
     assert "不匹配" in res.json()["msg"]

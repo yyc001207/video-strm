@@ -39,8 +39,6 @@ from app.core.models import (
 from app.core.settings import settings
 
 # 用户提供的默认 OpenList 服务器配置（可通过全局配置页修改）
-DEFAULT_SERVER_URL = "http://192.168.199.238:5244"
-DEFAULT_TOKEN = "openlist-1395546b-a0b2-48ba-9b56-bc495bdb7f32XikIcYkGh4WcY6MLBWuDwaRT20ryKWqXH9F81rX6rRKMGZuEnZhwQXnRstzmt7yH"
 DEFAULT_VIDEO_FORMATS = "mp4,mkv,avi,wmv,flv,mov,webm,ts"
 DEFAULT_SUBTITLE_FORMATS = "srt,ass,ssa,sub,vtt"
 DEFAULT_MAX_CONCURRENT = 1
@@ -1049,7 +1047,7 @@ async def get_recent_log_lines(execution_id: int, limit: int = 200) -> list[dict
 # ---------- 播种 ----------
 
 async def seed_default_openlist_config(db: AsyncSession) -> bool:
-    """幂等插入默认 OpenList 全局配置（视频/字幕格式 + 并发度）与默认服务器。"""
+    """幂等插入默认 OpenList 全局配置（视频/字幕格式 + 并发度）。不预置任何服务器。"""
     changed = False
     config = await db.scalar(select(OpenListConfig).where(OpenListConfig.is_deleted == False))  # noqa: E712
     if config is None:
@@ -1062,19 +1060,6 @@ async def seed_default_openlist_config(db: AsyncSession) -> bool:
             pause_time=DEFAULT_PAUSE_TIME,
         )
         db.add(config)
-        changed = True
-    server = await db.scalar(
-        select(OpenListServer).where(OpenListServer.is_deleted == False).order_by(OpenListServer.id)  # noqa: E712
-    )
-    if server is None:
-        db.add(
-            OpenListServer(
-                name="默认服务器",
-                server_url=DEFAULT_SERVER_URL,
-                token=DEFAULT_TOKEN,
-                is_active=True,
-            )
-        )
         changed = True
     if changed:
         await db.commit()
