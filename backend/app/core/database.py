@@ -40,6 +40,58 @@ async def _ensure_config_columns() -> None:
                 await conn.execute(text(f"ALTER TABLE open_list_config ADD COLUMN {column} {ddl}"))
 
 
+async def _ensure_execution_columns() -> None:
+    """执行记录表补齐目录执行快照列（create_all 对已存在表不生效，需 ALTER）。"""
+    new_columns = {
+        "process_path": "VARCHAR(512)",
+        "output_dir": "VARCHAR(512)",
+    }
+    async with engine.begin() as conn:
+        result = await conn.execute(text("PRAGMA table_info(open_list_execution)"))
+        existing = {row[1] for row in result}
+        for column, ddl in new_columns.items():
+            if column not in existing:
+                await conn.execute(text(f"ALTER TABLE open_list_execution ADD COLUMN {column} {ddl}"))
+
+
+async def _ensure_task_columns() -> None:
+    """任务表补齐服务器关联列（强关联服务器）。"""
+    async with engine.begin() as conn:
+        result = await conn.execute(text("PRAGMA table_info(open_list_task)"))
+        existing = {row[1] for row in result}
+        if "server_id" not in existing:
+            await conn.execute(text("ALTER TABLE open_list_task ADD COLUMN server_id INTEGER"))
+
+
+async def _bind_orphan_tasks_to_default_server() -> None:
+    """迁移：旧任务（server_id 为空）绑定到第一个启用服务器（幂等）。"""
+    from sqlalchemy import select
+
+    from app.core.models import OpenListServer, OpenListTask
+
+    async with AsyncSessionLocal() as db:
+        server = await db.scalar(
+            select(OpenListServer)
+            .where(OpenListServer.is_deleted == False)  # noqa: E712
+            .order_by(OpenListServer.id)
+            .limit(1)
+        )
+        if server is None:
+            return
+        result = await db.execute(
+            select(OpenListTask).where(
+                OpenListTask.server_id.is_(None),
+                OpenListTask.is_deleted == False,  # noqa: E712
+            )
+        )
+        tasks = list(result.scalars())
+        if not tasks:
+            return
+        for task in tasks:
+            task.server_id = server.id
+        await db.commit()
+
+
 async def init_db() -> None:
     """建表、轻量迁移并写入默认 OpenList 全局配置（幂等）。"""
     from app.core import models  # noqa: F401   # 注册全部模型到 Base
@@ -48,5 +100,8 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await _ensure_config_columns()
+    await _ensure_execution_columns()
+    await _ensure_task_columns()
     async with AsyncSessionLocal() as session:
         await seed_default_openlist_config(session)
+    await _bind_orphan_tasks_to_default_server()

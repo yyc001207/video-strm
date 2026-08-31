@@ -13,12 +13,13 @@ const config = ref<OpenListConfig | null>(null)
 const serverDialogVisible = ref(false)
 const editingServerId = ref<number | null>(null)
 const savingServer = ref(false)
-const serverForm = reactive({ name: '', server_url: '', token: '' })
+const refreshingCacheId = ref<number | null>(null)
+const serverForm = reactive({ name: '', server_url: '', token: '', parent_dirs: '', skip_validation: false })
 
 // 全局配置弹窗
 const configDialogVisible = ref(false)
 const savingConfig = ref(false)
-const configForm = reactive({ video_formats: '', subtitle_formats: '', max_concurrent: 1, pause_count: 50, pause_time: '0,3,5', disable_ssl_verify: false, log_to_db: false, process_path_prefix: '', output_dir_prefix: '' })
+const configForm = reactive({ video_formats: '', subtitle_formats: '', max_concurrent: 1, pause_count: 50, pause_time: '0,3,5', disable_ssl_verify: false, log_to_db: false, output_dir_prefix: '' })
 
 async function load() {
   loading.value = true
@@ -35,6 +36,8 @@ function openCreateServer() {
   serverForm.name = ''
   serverForm.server_url = ''
   serverForm.token = ''
+  serverForm.parent_dirs = ''
+  serverForm.skip_validation = false
   serverDialogVisible.value = true
 }
 
@@ -44,7 +47,19 @@ function openEditServer(server: OpenListServer) {
   serverForm.server_url = server.server_url
   // 编辑时不回填 Token：留空表示保持原 Token 不变
   serverForm.token = ''
+  serverForm.parent_dirs = (server.parent_dirs ?? []).join('\n')
+  serverForm.skip_validation = false
   serverDialogVisible.value = true
+}
+
+/** 解析父级目录输入（每行一个路径，去空白去重）。 */
+function parseParentDirs(): string[] {
+  const dirs: string[] = []
+  for (const line of serverForm.parent_dirs.split('\n')) {
+    const path = line.trim()
+    if (path && !dirs.includes(path)) dirs.push(path)
+  }
+  return dirs
 }
 
 async function handleSaveServer() {
@@ -52,19 +67,24 @@ async function handleSaveServer() {
     ElMessage.warning('请填写服务器地址')
     return
   }
+  const parentDirs = parseParentDirs()
   savingServer.value = true
   try {
     if (editingServerId.value != null) {
       await openlistApi.updateServer(editingServerId.value, {
         name: serverForm.name.trim() || undefined,
         server_url: serverForm.server_url.trim(),
-        token: serverForm.token.trim() || undefined
+        token: serverForm.token.trim() || undefined,
+        parent_dirs: parentDirs,
+        skip_validation: serverForm.skip_validation
       })
     } else {
       await openlistApi.createServer({
         name: serverForm.name.trim() || undefined,
         server_url: serverForm.server_url.trim(),
-        token: serverForm.token.trim() || undefined
+        token: serverForm.token.trim() || undefined,
+        parent_dirs: parentDirs,
+        skip_validation: serverForm.skip_validation
       })
     }
     ElMessage.success('服务器配置已保存')
@@ -74,6 +94,21 @@ async function handleSaveServer() {
     /* 拦截器提示 */
   } finally {
     savingServer.value = false
+  }
+}
+
+/** 手动刷新该服务器所有父级目录的一级子目录缓存。 */
+async function handleRefreshCache(server: OpenListServer) {
+  refreshingCacheId.value = server.id
+  try {
+    const paths: Array<string | undefined> = server.parent_dirs?.length ? server.parent_dirs : [undefined]
+    const results = await Promise.all(paths.map(p => openlistApi.refreshServerDirs(server.id, p)))
+    const total = results.reduce((sum, r) => sum + (r.data.count ?? 0), 0)
+    ElMessage.success(`目录缓存已刷新（${results.length} 个父级目录，共 ${total} 个子目录）`)
+  } catch {
+    /* 拦截器提示 */
+  } finally {
+    refreshingCacheId.value = null
   }
 }
 
@@ -101,7 +136,6 @@ function openEditConfig() {
   configForm.pause_time = config.value.pause_time ?? '0,3,5'
   configForm.disable_ssl_verify = config.value.disable_ssl_verify ?? false
   configForm.log_to_db = config.value.log_to_db ?? false
-  configForm.process_path_prefix = config.value.process_path_prefix ?? ''
   configForm.output_dir_prefix = config.value.output_dir_prefix ?? ''
   configDialogVisible.value = true
 }
@@ -117,7 +151,6 @@ async function handleSaveConfig() {
       pause_time: configForm.pause_time.trim(),
       disable_ssl_verify: configForm.disable_ssl_verify,
       log_to_db: configForm.log_to_db,
-      process_path_prefix: configForm.process_path_prefix.trim(),
       output_dir_prefix: configForm.output_dir_prefix.trim()
     })
     ElMessage.success('全局配置已保存')
@@ -157,6 +190,16 @@ defineExpose({ reload: load })
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="父级目录" min-width="180">
+          <template #default="{ row }">
+            <template v-if="row.parent_dirs?.length">
+              <el-tag v-for="dir in row.parent_dirs" :key="dir" type="info" effect="plain" size="small" class="global-config__dir-tag">
+                {{ dir }}
+              </el-tag>
+            </template>
+            <span v-else class="global-config__muted">未配置</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.is_active ? 'success' : 'info'" effect="light" size="small">
@@ -164,8 +207,11 @@ defineExpose({ reload: load })
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="130" fixed="right">
+        <el-table-column label="操作" width="170" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" :loading="refreshingCacheId === row.id" @click="handleRefreshCache(row)">
+              刷新缓存
+            </el-button>
             <el-button link type="primary" @click="openEditServer(row)">编辑</el-button>
             <el-button link type="danger" @click="handleDeleteServer(row)">删除</el-button>
           </template>
@@ -199,7 +245,6 @@ defineExpose({ reload: load })
               {{ config.log_to_db ? '开启（双写）' : '关闭（仅写文件）' }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="处理路径前缀">{{ config.process_path_prefix || '—' }}</el-descriptions-item>
           <el-descriptions-item label="输出目录前缀">{{ config.output_dir_prefix || '—' }}</el-descriptions-item>
         </el-descriptions>
       </div>
@@ -219,6 +264,19 @@ defineExpose({ reload: load })
           <el-input v-model="serverForm.token" type="password" show-password autocomplete="new-password"
             :placeholder="editingServerId != null ? '已设置，留空保持不变' : '请输入 Token'" maxlength="512" />
           <div class="global-config__remark">编辑时不回填，留空表示保持原 Token 不变</div>
+        </el-form-item>
+        <el-form-item label="父级目录">
+          <el-input
+            v-model="serverForm.parent_dirs"
+            type="textarea"
+            :rows="3"
+            placeholder="每行一个目录，自动补全 / 前缀，如：&#10;emby/音乐&#10;电影"
+          />
+          <div class="global-config__remark">无需手写 /（如 emby/音乐 → /emby/音乐）；保存时校验格式、存在性与读写权限（校验通过后自动缓存一级子目录）</div>
+        </el-form-item>
+        <el-form-item label="跳过校验">
+          <el-switch v-model="serverForm.skip_validation" />
+          <div class="global-config__remark">服务器暂时不可达时可跳过存在性/读写校验，格式校验始终执行</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -257,13 +315,9 @@ defineExpose({ reload: load })
           <el-switch v-model="configForm.log_to_db" />
           <div class="global-config__remark">默认关闭（仅写日志文件，DB 不再积累日志）；需结构化日志时开启</div>
         </el-form-item>
-        <el-form-item label="处理路径前缀">
-          <el-input v-model="configForm.process_path_prefix" placeholder="如：/emby（默认空）" maxlength="128" />
-          <div class="global-config__remark">选择预设时自动拼接到处理路径前，默认空则不拼接</div>
-        </el-form-item>
         <el-form-item label="输出目录前缀">
           <el-input v-model="configForm.output_dir_prefix" placeholder="如：/volume1/media（默认空）" maxlength="128" />
-          <div class="global-config__remark">选择预设时自动拼接到输出目录前，默认空则不拼接</div>
+          <div class="global-config__remark">快速添加任务配置时拼接到输出目录前，默认空则不拼接</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -304,6 +358,15 @@ defineExpose({ reload: load })
     font-size: var(--el-font-size-extra-small);
     color: var(--el-text-color-secondary);
     margin-top: 2px;
+  }
+
+  &__dir-tag {
+    margin: 2px 4px 2px 0;
+  }
+
+  &__muted {
+    color: var(--el-text-color-secondary);
+    font-size: var(--el-font-size-extra-small);
   }
 }
 </style>

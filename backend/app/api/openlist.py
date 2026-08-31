@@ -1,8 +1,7 @@
-"""OpenList 路由：全局配置 / 预设 / 任务 / 执行管理 / 任务历史 / 实时日志（WebSocket）。
+"""OpenList 路由：全局配置 / 任务 / 执行管理 / 任务历史 / 实时日志（WebSocket）。
 
-注意：FastAPI 按注册顺序匹配路径，``/presets/{preset_id}``、``/tasks/{task_id}``
-等参数化路由必须排在 ``/presets/delete``、``/tasks/copy`` 等字面量路由之后，
-否则 ``copy``/``delete`` 会被当作 id 解析而报 422。
+注意：FastAPI 按注册顺序匹配路径，``/tasks/{task_id}`` 等参数化路由必须排在
+``/tasks/copy`` 等字面量路由之后，否则 ``copy``/``delete`` 会被当作 id 解析而报 422。
 
 实时日志下载端点返回纯文本，流式响应无 {code,msg,data} 包裹，供前端 blob 下载。
 """
@@ -20,12 +19,12 @@ from app.business.openlist import service
 from app.business.openlist.schema import (
     OpenListBatchDeleteRequest,
     OpenListConfigUpdate,
+    OpenListDirExecutionBatchCreate,
     OpenListExecutionBatchCreate,
     OpenListExecutionCancel,
     OpenListExecutionCreate,
     OpenListExecutionStart,
-    OpenListPresetCreate,
-    OpenListPresetUpdate,
+    OpenListServerAddDirs,
     OpenListServerCreate,
     OpenListServerUpdate,
     OpenListTaskCreate,
@@ -97,73 +96,61 @@ async def update_server(
     return success_response(data=await service.update_server(db, server_id, data))
 
 
-# ---------- 预设 ----------
-# 字面量路由（delete/reorder）先于 /presets/{preset_id} 注册
-
-@router.get("/presets", summary="预设列表")
-async def list_presets(
+@router.post("/servers/{server_id}/parent-dirs", summary="快速追加父级目录（仅校验新增部分）")
+async def add_server_parent_dirs(
+    server_id: int,
+    data: OpenListServerAddDirs,
     db: AsyncSession = Depends(get_db),
 ):
-    return success_response(data={"list": await service.list_presets(db)})
+    result = await service.add_server_parent_dirs(
+        db, server_id, data.parent_dirs, skip_validation=data.skip_validation
+    )
+    return success_response(data=result)
 
 
-@router.post("/presets", summary="创建预设")
-async def create_preset(
-    data: OpenListPresetCreate,
+@router.get("/servers/{server_id}/dirs", summary="查询路径下一级子目录（缓存优先）")
+async def list_server_dirs(
+    server_id: int,
+    path: Optional[str] = Query(default=None, description="为空时使用第一个父级目录"),
     db: AsyncSession = Depends(get_db),
 ):
-    return success_response(data=await service.create_preset(db, data))
+    dirs = await service.list_server_dirs(db, server_id, path or None)
+    return success_response(data={"path": path or "", "list": dirs})
 
 
-@router.post("/presets/delete", summary="删除预设")
-async def delete_preset(
+@router.get("/servers/{server_id}/dirs/search", summary="按关键字逐层搜索目录（缓存优先）")
+async def search_server_dirs(
+    server_id: int,
+    keyword: str = Query(..., min_length=1, max_length=128),
+    path: Optional[str] = Query(default=None, description="搜索起点，为空时使用第一个父级目录"),
+    depth: int = Query(default=3, ge=1, le=6, description="下钻层数"),
+    db: AsyncSession = Depends(get_db),
+):
+    dirs = await service.search_server_dirs(db, server_id, path or "", keyword, depth=depth)
+    return success_response(data={"path": path or "", "list": dirs})
+
+
+@router.post("/servers/{server_id}/dirs/refresh", summary="手动刷新路径下一级子目录缓存")
+async def refresh_server_dirs(
+    server_id: int,
     payload: dict,
     db: AsyncSession = Depends(get_db),
 ):
-    preset_id = payload.get("id")
-    if preset_id is None:
-        raise BadRequestException("缺少 id")
-    await service.delete_preset(db, preset_id)
-    return success_response(data=None)
-
-
-@router.post("/presets/batch-delete", summary="批量删除预设")
-async def batch_delete_presets(
-    data: OpenListBatchDeleteRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    await service.batch_delete_presets(db, data.ids)
-    return success_response(data=None)
-
-
-@router.post("/presets/reorder", summary="预设排序")
-async def reorder_presets(
-    payload: dict,
-    db: AsyncSession = Depends(get_db),
-):
-    ids = payload.get("ids") or []
-    await service.reorder_presets(db, [int(i) for i in ids])
-    return success_response(data=None)
-
-
-@router.post("/presets/{preset_id}", summary="更新预设")
-async def update_preset(
-    preset_id: int,
-    data: OpenListPresetUpdate,
-    db: AsyncSession = Depends(get_db),
-):
-    return success_response(data=await service.update_preset(db, preset_id, data))
+    path = payload.get("path") or None
+    dirs = await service.list_server_dirs(db, server_id, path, refresh=True)
+    return success_response(data={"path": path or "", "list": dirs, "count": len(dirs)})
 
 
 # ---------- 任务 ----------
 # 字面量路由（delete/copy）先于 /tasks/{task_id} 注册
 
-@router.get("/tasks", summary="任务列表（含最近一次执行）")
+@router.get("/tasks", summary="任务列表（含最近一次执行，可按服务器筛选）")
 async def list_tasks(
     keyword: Optional[str] = Query(default=None, max_length=128),
+    server_id: Optional[int] = Query(default=None, description="按服务器筛选"),
     db: AsyncSession = Depends(get_db),
 ):
-    items, total = await service.list_tasks(db, keyword)
+    items, total = await service.list_tasks(db, keyword, server_id)
     return success_response(data={"list": items}, total=total)
 
 
@@ -243,6 +230,15 @@ async def batch_create_executions(
     return success_response(data={"list": results})
 
 
+@router.post("/executions/dirs", summary="批量创建目录执行记录（不关联任务，仅落库）")
+async def batch_create_dir_executions(
+    data: OpenListDirExecutionBatchCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    results = await service.batch_create_dir_executions(db, data)
+    return success_response(data={"list": results})
+
+
 @router.post("/executions/start", summary="启动已创建的执行记录")
 async def start_execution(
     data: OpenListExecutionStart,
@@ -313,11 +309,12 @@ async def download_execution_log(
 
 # ---------- 任务历史 ----------
 
-@router.get("/history", summary="任务历史（每个任务最近一次执行）")
+@router.get("/history", summary="任务历史（每个任务最近一次执行，可按服务器筛选）")
 async def history_summary(
+    server_id: Optional[int] = Query(default=None, description="按服务器筛选"),
     db: AsyncSession = Depends(get_db),
 ):
-    return success_response(data={"list": await service.history_summary(db)})
+    return success_response(data={"list": await service.history_summary(db, server_id)})
 
 
 @router.get("/history/task/{task_id}", summary="指定任务的全部执行记录")

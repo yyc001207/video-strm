@@ -6,6 +6,7 @@ export interface OpenListServer {
   id: number
   name: string | null
   server_url: string
+  parent_dirs: string[]
   is_active: boolean
   has_token: boolean
 }
@@ -14,6 +15,8 @@ export interface OpenListServerCreate {
   name?: string
   server_url: string
   token?: string
+  parent_dirs?: string[]
+  skip_validation?: boolean
 }
 
 export interface OpenListServerUpdate {
@@ -21,6 +24,8 @@ export interface OpenListServerUpdate {
   server_url?: string
   token?: string
   is_active?: boolean
+  parent_dirs?: string[]
+  skip_validation?: boolean
 }
 
 export interface OpenListConfig {
@@ -33,20 +38,14 @@ export interface OpenListConfig {
   pause_time: string
   disable_ssl_verify: boolean
   log_to_db: boolean
-  process_path_prefix: string
   output_dir_prefix: string
-}
-
-export interface OpenListPreset {
-  id: number
-  name: string
-  preset_path: string
-  sort_order: number
-  created_time: string | null
 }
 
 export interface OpenListTask {
   id: number
+  server_id: number | null
+  server_url: string
+  server_name: string | null
   name: string
   output_dir: string
   process_path: string
@@ -63,6 +62,8 @@ export interface OpenListExecution {
   id: number
   task_id: number
   task_name: string
+  process_path: string
+  output_dir: string
   server_id: number | null
   server_name: string | null
   status: ExecutionStatus
@@ -78,6 +79,27 @@ export interface OpenListExecution {
   started_time: string | null
   finished_time: string | null
   created_time: string | null
+}
+
+/** 目录执行单元：云端处理路径 + 输出目录。 */
+export interface DirExecutionItem {
+  path: string
+  output_dir: string
+}
+
+export interface BatchDirExecutionParams {
+  server_id: number
+  dirs: DirExecutionItem[]
+  is_incremental: boolean
+  is_force: boolean
+  strm_only: boolean
+}
+
+/** 服务器路径下一级子目录（缓存条目）。 */
+export interface ServerDirItem {
+  name: string
+  path: string
+  modified: string | null
 }
 
 export interface OpenListLog {

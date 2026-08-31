@@ -19,7 +19,8 @@ const cancelling = ref(false)
 const loading = ref(false)
 
 const serverOptions = computed(() => store.servers.filter(s => s.is_active))
-const taskOptions = computed(() => store.tasks)
+/** 任务强关联服务器：只展示所选服务器的任务配置。 */
+const taskOptions = computed(() => store.tasks.filter(t => t.server_id === selectedServerId.value))
 
 const canStart = computed(
   () => selectedServerId.value != null && selectedTaskIds.value.length > 0
@@ -169,7 +170,7 @@ defineExpose({ reload: load })
                 :disabled="store.runningTaskIds.has(task.id)"
               />
             </el-select>
-            <span class="execution__hint">可多选，将依次在所选服务器上执行</span>
+            <span class="execution__hint">可多选，将依次在所选服务器上执行；任务配置可在「任务配置」页快速添加</span>
           </el-form-item>
           <el-form-item label="增量更新">
             <el-switch v-model="isIncremental" />

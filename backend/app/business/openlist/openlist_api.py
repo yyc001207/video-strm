@@ -89,6 +89,40 @@ class OpenListAPI:
             self._log("error", f"OpenList 请求失败: {str(e)}")
             raise Exception("OpenList 请求失败")
 
+    async def create_dir(self, path: str) -> bool:
+        """创建目录（用于父级目录写权限校验）：POST /api/fs/mkdir。"""
+        url = f"{self.base_url}/api/fs/mkdir"
+        data = {"path": path}
+        try:
+            async with httpx.AsyncClient(verify=self.verify) as client:
+                response = await client.post(url, json=data, headers=self.headers, timeout=30.0)
+                response.raise_for_status()
+                result = response.json()
+                if result.get("code") == 200:
+                    return True
+                raise Exception(result.get("message", "未知错误"))
+        except httpx.TimeoutException:
+            raise Exception("OpenList 请求超时")
+        except httpx.RequestError as e:
+            raise Exception(f"OpenList 请求失败: {str(e)}")
+
+    async def remove_path(self, path: str) -> bool:
+        """删除路径（清理校验产生的临时目录）：POST /api/fs/remove。"""
+        url = f"{self.base_url}/api/fs/remove"
+        data = {"path": path}
+        try:
+            async with httpx.AsyncClient(verify=self.verify) as client:
+                response = await client.post(url, json=data, headers=self.headers, timeout=30.0)
+                response.raise_for_status()
+                result = response.json()
+                if result.get("code") == 200:
+                    return True
+                raise Exception(result.get("message", "未知错误"))
+        except httpx.TimeoutException:
+            raise Exception("OpenList 请求超时")
+        except httpx.RequestError as e:
+            raise Exception(f"OpenList 请求失败: {str(e)}")
+
     async def download_file(self, file_path: str, save_path: str, max_retries: int = 5, encode: bool = True) -> bool:
         encoded_path = quote(file_path, safe="/") if encode else file_path
         download_url = f"{self.base_url}/d{encoded_path}"

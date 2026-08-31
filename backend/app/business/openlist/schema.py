@@ -20,7 +20,6 @@ class OpenListConfigUpdate(BaseModel):
     pause_time: Optional[str] = Field(default=None, max_length=512)
     disable_ssl_verify: Optional[bool] = None
     log_to_db: Optional[bool] = None
-    process_path_prefix: Optional[str] = Field(default=None, max_length=128)
     output_dir_prefix: Optional[str] = Field(default=None, max_length=128)
 
 
@@ -35,7 +34,6 @@ class OpenListConfigResponse(BaseModel):
     pause_time: str = "0,3,5"
     disable_ssl_verify: bool = False
     log_to_db: bool = False
-    process_path_prefix: Optional[str] = None
     output_dir_prefix: Optional[str] = None
     created_time: Optional[datetime] = None
     updated_time: Optional[datetime] = None
@@ -49,6 +47,8 @@ class OpenListServerCreate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=128)
     server_url: str = Field(..., min_length=1, max_length=512)
     token: Optional[str] = Field(default=None, max_length=512)
+    parent_dirs: Optional[list[str]] = Field(default=None, max_length=50)
+    skip_validation: bool = False
 
 
 class OpenListServerUpdate(BaseModel):
@@ -58,6 +58,17 @@ class OpenListServerUpdate(BaseModel):
     server_url: Optional[str] = Field(default=None, min_length=1, max_length=512)
     token: Optional[str] = Field(default=None, max_length=512)
     is_active: Optional[bool] = None
+    parent_dirs: Optional[list[str]] = Field(default=None, max_length=50)
+    skip_validation: Optional[bool] = None
+
+
+class OpenListServerAddDirs(BaseModel):
+    """快速追加父级目录（只校验新增部分，不动已有目录）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    parent_dirs: list[str] = Field(..., min_length=1, max_length=20)
+    skip_validation: bool = False
 
 
 class OpenListServerResponse(BaseModel):
@@ -66,37 +77,9 @@ class OpenListServerResponse(BaseModel):
     id: int
     name: Optional[str] = None
     server_url: str
+    parent_dirs: list[str] = []
     is_active: bool = True
     has_token: bool = False
-    created_time: Optional[datetime] = None
-    updated_time: Optional[datetime] = None
-
-
-# ---------- 预设 ----------
-
-class OpenListPresetCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(..., min_length=1, max_length=128)
-    preset_path: str = Field(..., min_length=1, max_length=512)
-    sort_order: int = Field(default=0)
-
-
-class OpenListPresetUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: Optional[str] = Field(default=None, min_length=1, max_length=128)
-    preset_path: Optional[str] = Field(default=None, min_length=1, max_length=512)
-    sort_order: Optional[int] = None
-
-
-class OpenListPresetResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    name: str
-    preset_path: str
-    sort_order: int
     created_time: Optional[datetime] = None
     updated_time: Optional[datetime] = None
 
@@ -106,6 +89,7 @@ class OpenListPresetResponse(BaseModel):
 class OpenListTaskCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    server_id: int
     name: str = Field(..., min_length=1, max_length=128)
     output_dir: str = Field(..., min_length=1, max_length=512)
     process_path: str = Field(..., min_length=1, max_length=512)
@@ -116,6 +100,7 @@ class OpenListTaskCreate(BaseModel):
 class OpenListTaskUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    server_id: Optional[int] = None
     name: Optional[str] = Field(default=None, min_length=1, max_length=128)
     output_dir: Optional[str] = Field(default=None, min_length=1, max_length=512)
     process_path: Optional[str] = Field(default=None, min_length=1, max_length=512)
@@ -127,6 +112,9 @@ class OpenListTaskResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    server_id: Optional[int] = None
+    server_url: Optional[str] = None
+    server_name: Optional[str] = None
     name: str
     output_dir: str
     process_path: str
@@ -137,7 +125,7 @@ class OpenListTaskResponse(BaseModel):
 
 
 class OpenListBatchDeleteRequest(BaseModel):
-    """批量删除请求（预设/任务通用）。"""
+    """批量删除请求（任务通用）。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -178,6 +166,31 @@ class OpenListExecutionBatchCreate(BaseModel):
     tasks: list[OpenListBatchTask] = Field(..., min_length=1, max_length=50)
 
 
+class OpenListDirExecutionItem(BaseModel):
+    """目录执行单元：云端处理路径 + 输出目录（由前端按服务器父级目录与全局前缀推导）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(..., min_length=1, max_length=512)
+    output_dir: str = Field(..., min_length=1, max_length=512)
+
+
+class OpenListDirExecutionBatchCreate(BaseModel):
+    """批量目录执行（同一服务器，多个目录，仅落库不启动）。
+
+    与任务执行不同：不创建/关联任务记录，execution.task_id 固定为 0，
+    执行参数以 process_path/output_dir 快照冗余存储，取消键使用 execution_id。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    server_id: int
+    dirs: list[OpenListDirExecutionItem] = Field(..., min_length=1, max_length=50)
+    is_incremental: bool = True
+    is_force: bool = False
+    strm_only: bool = False
+
+
 class OpenListExecutionStart(BaseModel):
     """启动已创建的执行记录（前端先建再连再启动，保证日志不遗漏）。"""
 
@@ -200,6 +213,8 @@ class OpenListExecutionResponse(BaseModel):
     id: int
     task_id: int
     task_name: str
+    process_path: Optional[str] = None
+    output_dir: Optional[str] = None
     server_id: Optional[int] = None
     server_name: Optional[str] = None
     status: str

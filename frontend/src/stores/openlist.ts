@@ -10,9 +10,9 @@ import {
   type ExecutionStartParams
 } from '@/api/openlist'
 import type {
+  DirExecutionItem,
   OpenListConfig,
   OpenListExecution,
-  OpenListPreset,
   OpenListServer,
   OpenListTask
 } from '@/types/openlist'
@@ -20,7 +20,6 @@ import type {
 export const useOpenlistStore = defineStore('openlist', () => {
   const config = ref<OpenListConfig | null>(null)
   const servers = ref<OpenListServer[]>([])
-  const presets = ref<OpenListPreset[]>([])
   const tasks = ref<OpenListTask[]>([])
   const runningExecutions = ref<OpenListExecution[]>([])
   const activeExecutionIds = ref<number[]>([])
@@ -31,11 +30,6 @@ export const useOpenlistStore = defineStore('openlist', () => {
     const res = await openlistApi.getConfig()
     config.value = res.data
     servers.value = res.data.servers ?? []
-  }
-
-  async function fetchPresets(): Promise<void> {
-    const res = await openlistApi.listPresets()
-    presets.value = res.data.list
   }
 
   async function fetchTasks(): Promise<void> {
@@ -62,6 +56,23 @@ export const useOpenlistStore = defineStore('openlist', () => {
     return res.data.list
   }
 
+  /** 批量创建目录执行记录（同一服务器多目录，不关联任务，仅落库），返回全部 execution。 */
+  async function batchCreateDirExecution(
+    serverId: number,
+    dirs: DirExecutionItem[],
+    flags: { is_incremental: boolean; is_force: boolean; strm_only: boolean }
+  ): Promise<OpenListExecution[]> {
+    const res = await openlistApi.batchCreateDirExecutions({
+      server_id: serverId,
+      dirs,
+      is_incremental: flags.is_incremental,
+      is_force: flags.is_force,
+      strm_only: flags.strm_only
+    })
+    activeExecutionIds.value = res.data.list.map(e => e.id)
+    return res.data.list
+  }
+
   /** 启动已创建的执行记录（日志连接成功后再调用）。 */
   async function startExecution(params: ExecutionLaunchParams): Promise<OpenListExecution> {
     const res = await openlistApi.startExecution(params)
@@ -77,17 +88,16 @@ export const useOpenlistStore = defineStore('openlist', () => {
   return {
     config,
     servers,
-    presets,
     tasks,
     runningExecutions,
     activeExecutionIds,
     runningTaskIds,
     fetchConfig,
-    fetchPresets,
     fetchTasks,
     fetchRunning,
     createExecution,
     batchCreateExecution,
+    batchCreateDirExecution,
     startExecution,
     cancelExecution
   }

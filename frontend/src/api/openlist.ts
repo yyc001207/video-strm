@@ -5,17 +5,18 @@ import { ElMessage } from 'element-plus'
 
 import request from './index'
 import type {
+  BatchDirExecutionParams,
   ExecutionStatus,
   HistorySummaryItem,
   OpenListConfig,
   OpenListExecution,
   OpenListLog,
-  OpenListPreset,
   OpenListServer,
   OpenListServerCreate,
   OpenListServerUpdate,
   OpenListTask,
-  Res
+  Res,
+  ServerDirItem
 } from '@/types/openlist'
 
 export interface ExecutionStartParams {
@@ -67,35 +68,42 @@ export const openlistApi = {
   deleteServer(id: number): Promise<Res<null>> {
     return request.post('/openlist/servers/delete', { id })
   },
+  /** 快速追加父级目录（仅校验新增部分，不动已有目录）。 */
+  addServerParentDirs(serverId: number, parentDirs: string[], skipValidation = false): Promise<Res<OpenListServer>> {
+    return request.post(`/openlist/servers/${serverId}/parent-dirs`, {
+      parent_dirs: parentDirs,
+      skip_validation: skipValidation
+    })
+  },
+  /** 查询服务器某路径下一级子目录（缓存优先）。 */
+  getServerDirs(serverId: number, path?: string): Promise<Res<{ path: string; list: ServerDirItem[] }>> {
+    return request.get(`/openlist/servers/${serverId}/dirs`, { params: path ? { path } : {} })
+  },
+  /** 按关键字逐层搜索目录（缓存优先；放宽超时，深层目录搜索耗时较长）。 */
+  searchServerDirs(serverId: number, keyword: string, path?: string): Promise<Res<{ path: string; list: ServerDirItem[] }>> {
+    return request.get(`/openlist/servers/${serverId}/dirs/search`, {
+      params: { keyword, ...(path ? { path } : {}) },
+      timeout: 90000
+    })
+  },
+  /** 手动刷新服务器某路径下一级子目录缓存。 */
+  refreshServerDirs(serverId: number, path?: string): Promise<Res<{ path: string; list: ServerDirItem[]; count: number }>> {
+    return request.post(`/openlist/servers/${serverId}/dirs/refresh`, { path: path || undefined })
+  },
 
-  /** 预设列表。 */
-  listPresets(): Promise<Res<{ list: OpenListPreset[] }>> {
-    return request.get('/openlist/presets')
-  },
-  createPreset(data: { name: string; preset_path: string; sort_order: number }): Promise<Res<OpenListPreset>> {
-    return request.post('/openlist/presets', data)
-  },
-  updatePreset(id: number, data: Partial<OpenListPreset>): Promise<Res<OpenListPreset>> {
-    return request.post(`/openlist/presets/${id}`, data)
-  },
-  deletePreset(id: number): Promise<Res<null>> {
-    return request.post('/openlist/presets/delete', { id })
-  },
-  batchDeletePresets(ids: number[]): Promise<Res<null>> {
-    return request.post('/openlist/presets/batch-delete', { ids })
-  },
-  reorderPresets(ids: number[]): Promise<Res<null>> {
-    return request.post('/openlist/presets/reorder', { ids })
-  },
-
-  /** 任务列表（含最近一次执行）。 */
-  listTasks(keyword?: string): Promise<Res<{ list: OpenListTask[] }>> {
-    return request.get('/openlist/tasks', { params: keyword ? { keyword } : {} })
+  /** 任务列表（含最近一次执行，可按服务器筛选）。 */
+  listTasks(keyword?: string, serverId?: number | null): Promise<Res<{ list: OpenListTask[] }>> {
+    return request.get('/openlist/tasks', {
+      params: {
+        ...(keyword ? { keyword } : {}),
+        ...(serverId ? { server_id: serverId } : {})
+      }
+    })
   },
   getTask(id: number): Promise<Res<OpenListTask>> {
     return request.get(`/openlist/tasks/${id}`)
   },
-  createTask(data: { name: string; output_dir: string; process_path: string; pause_count?: number; pause_time?: string }): Promise<Res<OpenListTask>> {
+  createTask(data: { server_id: number; name: string; output_dir: string; process_path: string; pause_count?: number; pause_time?: string }): Promise<Res<OpenListTask>> {
     return request.post('/openlist/tasks', data)
   },
   updateTask(id: number, data: Partial<OpenListTask>): Promise<Res<OpenListTask>> {
@@ -117,6 +125,10 @@ export const openlistApi = {
   batchCreateExecutions(params: BatchExecutionParams): Promise<Res<{ list: OpenListExecution[] }>> {
     return request.post('/openlist/executions/batch', params)
   },
+  /** 批量创建目录执行记录（同一服务器多目录，不关联任务，仅落库）。 */
+  batchCreateDirExecutions(params: BatchDirExecutionParams): Promise<Res<{ list: OpenListExecution[] }>> {
+    return request.post('/openlist/executions/dirs', params)
+  },
   /** 启动已创建的执行记录（前端先连日志，连接成功后再启动）。 */
   startExecution(params: ExecutionLaunchParams): Promise<Res<OpenListExecution>> {
     return request.post('/openlist/executions/start', params)
@@ -132,9 +144,9 @@ export const openlistApi = {
     return request.get(`/openlist/executions/${id}`)
   },
 
-  /** 任务历史：每个任务最近一次执行。 */
-  historySummary(): Promise<Res<{ list: HistorySummaryItem[] }>> {
-    return request.get('/openlist/history')
+  /** 任务历史：每个任务最近一次执行（可按服务器筛选）。 */
+  historySummary(serverId?: number | null): Promise<Res<{ list: HistorySummaryItem[] }>> {
+    return request.get('/openlist/history', { params: serverId ? { server_id: serverId } : {} })
   },
   /** 指定任务的全部执行记录。 */
   historyByTask(taskId: number, page: number, pageSize: number): Promise<Res<{ list: OpenListExecution[] }>> {

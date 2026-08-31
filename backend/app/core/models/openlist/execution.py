@@ -14,8 +14,10 @@ class OpenListExecution(Base):
     __tablename__ = "open_list_execution"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, comment="主键")
-    task_id: Mapped[int] = mapped_column(ForeignKey("open_list_task.id"), nullable=False, comment="关联任务 ID")
+    task_id: Mapped[int] = mapped_column(ForeignKey("open_list_task.id"), nullable=False, comment="关联任务 ID（目录执行为 0，表示无任务）")
     task_name: Mapped[str] = mapped_column(String(128), nullable=False, comment="任务名称（冗余，避免关联查询）")
+    process_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="处理路径快照（目录执行时冗余，任务执行时为 NULL）")
+    output_dir: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="输出目录快照（目录执行时冗余，任务执行时为 NULL）")
     server_id: Mapped[Optional[int]] = mapped_column(ForeignKey("open_list_server.id"), nullable=True, comment="关联服务器 ID（可空，兼容旧记录）")
     server_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="服务器名称（冗余快照）")
     status: Mapped[str] = mapped_column(Enum("running", "success", "fail", "cancelled", name="open_list_execution_status"), nullable=False, default="running", comment="执行状态")

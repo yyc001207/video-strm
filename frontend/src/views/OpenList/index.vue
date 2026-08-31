@@ -2,7 +2,6 @@
 import { nextTick, ref } from 'vue'
 
 import GlobalConfig from './components/GlobalConfig.vue'
-import PresetManage from './components/PresetManage.vue'
 import TaskManage from './components/TaskManage.vue'
 import Execution from './components/Execution.vue'
 import TaskHistory from './components/TaskHistory.vue'
@@ -11,7 +10,6 @@ import RealtimeLog from './components/RealtimeLog.vue'
 const activeTab = ref('config')
 
 const configRef = ref<InstanceType<typeof GlobalConfig> | null>(null)
-const presetRef = ref<InstanceType<typeof PresetManage> | null>(null)
 const taskRef = ref<InstanceType<typeof TaskManage> | null>(null)
 const executionRef = ref<InstanceType<typeof Execution> | null>(null)
 const historyRef = ref<InstanceType<typeof TaskHistory> | null>(null)
@@ -24,7 +22,6 @@ const realtimeRef = ref<InstanceType<typeof RealtimeLog> | null>(null)
 function handleTabChange(name: string) {
   const reloads: Record<string, (() => void) | undefined> = {
     config: configRef.value?.reload,
-    preset: presetRef.value?.reload,
     task: taskRef.value?.reload,
     execution: executionRef.value?.reload,
     history: historyRef.value?.reload,
@@ -63,9 +60,6 @@ function handleNavigate(tab: string, payload?: Record<string, unknown>) {
     <el-tabs v-model="activeTab" class="openlist__tabs" @tab-change="handleTabChange">
       <el-tab-pane label="全局配置" name="config" lazy>
         <GlobalConfig ref="configRef" />
-      </el-tab-pane>
-      <el-tab-pane label="预设配置" name="preset" lazy>
-        <PresetManage ref="presetRef" />
       </el-tab-pane>
       <el-tab-pane label="任务配置" name="task" lazy>
         <TaskManage ref="taskRef" />

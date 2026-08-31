@@ -76,12 +76,14 @@ async def run_generation(
     pause_count: Optional[int] = None,
     pause_time: Optional[str] = None,
     strm_only: bool = False,
+    cancel_key: Optional[str] = None,
 ):
     # 并发控制：进入前 acquire 当前信号量快照，退出时对同一对象 release，
     # 保证并发计数在整个任务生命周期内正确占用（含排队等待）。
     sem = _sem
     await sem.acquire()
-    task_key = str(task_id)
+    # 取消键：目录执行传 execution_id（无任务记录），任务执行默认 task_id 字符串
+    task_key = cancel_key or str(task_id)
     started = time.monotonic()
     try:
         log_dir = Path(settings.openlist_log_dir)

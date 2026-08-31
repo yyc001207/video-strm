@@ -221,12 +221,12 @@ function handleExecutionChange() {
   }
 
   // 仍在运行：切换查看，连接后若尚未启动则自动启动
-  // 优先取本次批量执行列表中的 taskId；不在批量列表时从运行中记录取真实 task_id/server_id，
-  // 避免手动切换其他正在执行的任务时 taskId 回退为 0，触发后端"执行记录与任务不匹配"（BUG-2）
+  // 优先取本次批量执行列表中的 taskId；不在批量列表时从运行中记录取真实 task_id/server_id。
+  // 注意：目录执行 task_id 为 0，此处用 == null 判断（0 是合法值），避免误报"未找到任务"
   const batchItem = batchExecutions.value.find(b => b.executionId === selected)
   const runningItem = store.runningExecutions.find(e => e.id === selected)
   const taskId = batchItem?.taskId ?? runningItem?.task_id
-  if (!taskId) {
+  if (taskId == null) {
     ElMessage.error('未找到该执行记录对应的任务，请刷新后重试')
     return
   }

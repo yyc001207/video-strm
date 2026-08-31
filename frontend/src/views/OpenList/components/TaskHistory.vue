@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Download, View } from '@element-plus/icons-vue'
+import { ArrowLeft, Download, View } from '@element-plus/icons-vue'
 
 import { openlistApi } from '@/api/openlist'
+import { useOpenlistStore } from '@/stores/openlist'
 import type { HistorySummaryItem, OpenListExecution, OpenListLog } from '@/types/openlist'
 import { formatDateTime } from '@/utils/date'
 
+const store = useOpenlistStore()
+
 const list = ref<HistorySummaryItem[]>([])
 const loading = ref(false)
+const serverFilter = ref<number | null>(null)
 
-const detailVisible = ref(false)
+/** 视图切换：列表 ↔ 详情（详情作为页面展示，不再使用抽屉）。 */
+const viewMode = ref<'list' | 'detail'>('list')
 const detailTaskId = ref<number | null>(null)
 const detailTaskName = ref('')
 const executions = ref<OpenListExecution[]>([])
@@ -47,19 +52,25 @@ function durationText(sec: number | null): string {
 async function load() {
   loading.value = true
   try {
-    const res = await openlistApi.historySummary()
+    const res = await openlistApi.historySummary(serverFilter.value)
     list.value = res.data.list
   } finally {
     loading.value = false
   }
 }
 
+/** 进入详情页面。 */
 async function openDetail(item: HistorySummaryItem) {
   detailTaskId.value = item.task_id
   detailTaskName.value = item.task_name
   detailPage.value = 1
-  detailVisible.value = true
+  viewMode.value = 'detail'
   await loadDetail()
+}
+
+/** 返回列表页面。 */
+function backToList() {
+  viewMode.value = 'list'
 }
 
 async function loadDetail() {
@@ -97,25 +108,45 @@ function handleDownloadLog(row: OpenListExecution) {
   })
 }
 
-onMounted(load)
+onMounted(async () => {
+  await Promise.all([load(), store.fetchConfig()])
+})
 
 defineExpose({ reload: load })
 </script>
 
 <template>
   <div class="task-history">
-    <el-card shadow="never" class="task-history__card">
+    <!-- 列表页面 -->
+    <el-card v-if="viewMode === 'list'" shadow="never" class="task-history__card">
       <template #header>
         <div class="task-history__header">
           <span>任务历史（每个任务最近一次执行）</span>
+          <el-select
+            v-model="serverFilter"
+            placeholder="全部服务器"
+            clearable
+            class="task-history__server-filter"
+            @change="load"
+          >
+            <el-option
+              v-for="server in store.servers"
+              :key="server.id"
+              :label="server.name || server.server_url"
+              :value="server.id"
+            />
+          </el-select>
         </div>
       </template>
 
       <el-table v-loading="loading" :data="list" row-key="task_id" height="100%" class="task-history__table">
-        <el-table-column label="任务名称" min-width="180" show-overflow-tooltip>
+        <el-table-column label="任务名称" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">{{ row.task_name }}</el-button>
           </template>
+        </el-table-column>
+        <el-table-column label="处理路径" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.process_path || '—' }}</template>
         </el-table-column>
         <el-table-column label="服务器" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">
@@ -164,10 +195,25 @@ defineExpose({ reload: load })
       </el-table>
     </el-card>
 
-    <!-- 任务执行历史详情 -->
-    <el-drawer v-model="detailVisible" :title="`${detailTaskName} · 执行历史`" size="720px" destroy-on-close>
-      <el-table v-loading="detailLoading" :data="executions" row-key="id" height="100%">
+    <!-- 详情页面（替代原抽屉） -->
+    <el-card v-else shadow="never" class="task-history__card">
+      <template #header>
+        <div class="task-history__header">
+          <span class="task-history__back">
+            <el-button link type="primary" :icon="ArrowLeft" @click="backToList">返回</el-button>
+            <span>{{ detailTaskName }} · 执行历史</span>
+          </span>
+        </div>
+      </template>
+
+      <el-table v-loading="detailLoading" :data="executions" row-key="id" height="100%" class="task-history__table">
         <el-table-column label="编号" prop="id" width="80" />
+        <el-table-column label="处理路径" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.process_path || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="输出目录" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.output_dir || '—' }}</template>
+        </el-table-column>
         <el-table-column label="服务器" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.server_name || '—' }}</template>
         </el-table-column>
@@ -206,9 +252,9 @@ defineExpose({ reload: load })
           @current-change="handleDetailPageChange"
         />
       </div>
-    </el-drawer>
+    </el-card>
 
-    <!-- 执行日志查看 -->
+    <!-- 执行日志查看（保留抽屉，长文本展示更合适） -->
     <el-drawer v-model="logVisible" :title="`执行日志 #${logExecution?.id ?? ''}`" size="640px" destroy-on-close>
       <div v-loading="logLoading" class="task-history__log">
         <pre v-if="logs.length" class="task-history__log-pre">{{ logs.map(l => `[${formatDateTime(l.created_time)}] [${l.log_level.toUpperCase()}] ${l.content}`).join('\n') }}</pre>
@@ -244,6 +290,18 @@ defineExpose({ reload: load })
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+  }
+
+  &__back {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+
+  &__server-filter {
+    width: 200px;
   }
 
   &__table {

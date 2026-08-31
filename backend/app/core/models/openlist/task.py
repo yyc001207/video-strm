@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -9,11 +9,12 @@ from app.core.database import Base
 
 
 class OpenListTask(Base):
-    """OpenList 任务配置表"""
+    """OpenList 任务配置表（强关联服务器）"""
 
     __tablename__ = "open_list_task"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, comment="主键")
+    server_id: Mapped[Optional[int]] = mapped_column(ForeignKey("open_list_server.id"), nullable=True, comment="关联服务器 ID（任务强关联服务器，旧数据迁移后自动绑定）")
     name: Mapped[str] = mapped_column(String(128), nullable=False, comment="任务名称")
     output_dir: Mapped[str] = mapped_column(String(512), nullable=False, comment="输出目录")
     process_path: Mapped[str] = mapped_column(String(512), nullable=False, comment="处理路径")
