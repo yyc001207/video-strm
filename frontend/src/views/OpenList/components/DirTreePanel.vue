@@ -37,6 +37,9 @@ watch([() => props.serverId, () => props.parentDir], () => {
   loadedNodes.clear()
   searchKeyword.value = ''
   searchResults.value = []
+  browseMode.value = false
+  browseStack.value = []
+  browseItems.value = []
   treeKey.value += 1
 })
 
@@ -111,6 +114,10 @@ const searchKeyword = ref('')
 const searchResults = ref<Array<{ name: string; path: string }>>([])
 
 function handleSearchInput() {
+  // 搜索词变化时退出「进入目录」浏览模式，回到搜索结果
+  browseMode.value = false
+  browseStack.value = []
+  browseItems.value = []
   const keyword = searchKeyword.value.trim().toLowerCase()
   if (!keyword) {
     searchResults.value = []
@@ -128,6 +135,40 @@ function pickSearchResult(item: { name: string; path: string }) {
   }
   searchKeyword.value = ''
   searchResults.value = []
+}
+
+// ---------- 从搜索结果进入目录，逐层浏览其子目录 ----------
+const browseMode = ref(false)
+const browseStack = ref<Array<{ name: string; path: string }>>([])
+const browseItems = ref<Array<{ name: string; path: string }>>([])
+
+/** 进入某目录：缓存优先加载其一级子目录，展示为可继续下钻的列表。 */
+async function enterDir(item: { name: string; path: string }) {
+  browseStack.value.push(item)
+  const children = await fetchDirNodes(item.path)
+  browseItems.value = children.map(n => ({ name: n.name, path: n.path }))
+  browseMode.value = true
+}
+
+/** 返回上一级（到根则回到搜索结果）。 */
+async function browseBack() {
+  browseStack.value.pop()
+  const parent = browseStack.value[browseStack.value.length - 1]
+  if (parent) {
+    const children = await fetchDirNodes(parent.path)
+    browseItems.value = children.map(n => ({ name: n.name, path: n.path }))
+  } else {
+    browseMode.value = false
+    browseItems.value = []
+    handleSearchInput()
+  }
+}
+
+/** 浏览模式中选择：加入已选（保留浏览位置，可继续多选）。 */
+function pickBrowseItem(item: { name: string; path: string }) {
+  if (!selected.value.includes(item.path)) {
+    selected.value = [...selected.value, item.path]
+  }
 }
 
 // ---------- 缓存刷新 ----------
@@ -164,7 +205,7 @@ async function handleRefresh() {
       <el-button :loading="refreshing" :disabled="!parentDir" @click="handleRefresh">刷新缓存</el-button>
     </div>
 
-    <div v-if="searchResults.length" class="dir-tree-panel__results">
+    <div v-if="searchResults.length && !browseMode" class="dir-tree-panel__results">
       <div
         v-for="item in searchResults"
         :key="item.path"
@@ -173,8 +214,29 @@ async function handleRefresh() {
       >
         <el-icon class="dir-tree-panel__result-icon"><FolderOpened /></el-icon>
         <span class="dir-tree-panel__result-path">{{ item.path }}</span>
+        <el-button link type="primary" size="small" @click.stop="enterDir(item)">进入</el-button>
         <el-button link type="primary" size="small">选择</el-button>
       </div>
+    </div>
+
+    <!-- 从搜索结果进入目录后的子目录浏览 -->
+    <div v-if="browseMode" class="dir-tree-panel__results">
+      <div class="dir-tree-panel__crumb">
+        <el-button link type="primary" size="small" @click="browseBack">← 返回</el-button>
+        <span class="dir-tree-panel__crumb-path">{{ browseStack.map(i => i.name).join(' / ') }}</span>
+      </div>
+      <div
+        v-for="item in browseItems"
+        :key="item.path"
+        class="dir-tree-panel__result"
+        @click="pickBrowseItem(item)"
+      >
+        <el-icon class="dir-tree-panel__result-icon"><FolderOpened /></el-icon>
+        <span class="dir-tree-panel__result-path">{{ item.path }}</span>
+        <el-button link type="primary" size="small" @click.stop="enterDir(item)">进入</el-button>
+        <el-button link type="primary" size="small">选择</el-button>
+      </div>
+      <el-empty v-if="!browseItems.length" description="该目录下暂无子目录" :image-size="50" />
     </div>
 
     <div class="dir-tree-panel__tree-wrap" :class="{ 'is-disabled': !parentDir }">
@@ -262,6 +324,22 @@ async function handleRefresh() {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--el-font-size-small);
+  }
+
+  &__crumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+    font-size: var(--el-font-size-small);
+  }
+
+  &__crumb-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--el-text-color-regular);
   }
 
   &__tree-wrap {

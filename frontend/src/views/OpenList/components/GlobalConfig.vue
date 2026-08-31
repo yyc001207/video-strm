@@ -207,7 +207,7 @@ defineExpose({ reload: load })
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="170" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" :loading="refreshingCacheId === row.id" @click="handleRefreshCache(row)">
               刷新缓存
