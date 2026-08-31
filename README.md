@@ -7,6 +7,8 @@
 - **SQLite**：数据存本地文件，无需 MySQL/Redis
 - **前后端一体**：FastAPI 后端 + Vue 3 前端，官方镜像 `yyc001207/video-strm:latest` 开箱即用
 
+> 📖 详细使用说明见 [用户手册](docs/用户手册.md)（含各功能截图占位，可自行补充）
+
 ## 快速部署（开箱即用）
 
 使用已发布的 Docker 镜像 `yyc001207/video-strm:latest`，无需安装 Python / Node，只需 Docker。
