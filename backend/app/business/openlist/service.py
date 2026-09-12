@@ -88,6 +88,7 @@ def execution_to_dict(execution: OpenListExecution, task: Optional[OpenListTask]
         "is_incremental": execution.is_incremental,
         "is_force": execution.is_force,
         "strm_only": execution.strm_only,
+        "strip_series": execution.strip_series,
         "duration_seconds": execution.duration_seconds,
         "log_path": execution.log_path,
         "started_time": execution.started_time.isoformat(sep=" ") if execution.started_time else None,
@@ -733,6 +734,7 @@ async def create_execution(db: AsyncSession, data: OpenListExecutionCreate) -> d
         is_incremental=data.is_incremental,
         is_force=data.is_force,
         strm_only=data.strm_only,
+        strip_series=data.strip_series,
         started_time=datetime.now(),
     )
     db.add(execution)
@@ -763,6 +765,7 @@ async def batch_create_executions(db: AsyncSession, data: OpenListExecutionBatch
             is_incremental=item.is_incremental,
             is_force=item.is_force,
             strm_only=item.strm_only,
+            strip_series=item.strip_series,
             started_time=datetime.now(),
         )
         db.add(execution)
@@ -855,6 +858,7 @@ async def start_execution(db: AsyncSession, execution_id: int, task_id: int, ser
             pause_count=pause_count,
             pause_time=pause_time,
             strm_only=execution.strm_only,
+            strip_series=execution.strip_series,
             cancel_key=cancel_key,
         )
     )

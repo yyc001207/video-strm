@@ -41,10 +41,11 @@ async def _ensure_config_columns() -> None:
 
 
 async def _ensure_execution_columns() -> None:
-    """执行记录表补齐目录执行快照列（create_all 对已存在表不生效，需 ALTER）。"""
+    """执行记录表补齐目录执行快照列与系列层优化列（create_all 对已存在表不生效，需 ALTER）。"""
     new_columns = {
         "process_path": "VARCHAR(512)",
         "output_dir": "VARCHAR(512)",
+        "strip_series": "BOOLEAN DEFAULT 0",
     }
     async with engine.begin() as conn:
         result = await conn.execute(text("PRAGMA table_info(open_list_execution)"))

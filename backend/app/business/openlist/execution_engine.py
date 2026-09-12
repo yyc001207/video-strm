@@ -76,6 +76,7 @@ async def run_generation(
     pause_count: Optional[int] = None,
     pause_time: Optional[str] = None,
     strm_only: bool = False,
+    strip_series: bool = False,
     cancel_key: Optional[str] = None,
 ):
     # 并发控制：进入前 acquire 当前信号量快照，退出时对同一对象 release，
@@ -109,6 +110,8 @@ async def run_generation(
         "processPath": process_path,
         "pauseCount": pause_count if pause_count is not None else global_config.get("pauseCount"),
         "pauseTime": pause_time if pause_time else global_config.get("pauseTime"),
+        # 系列层路径优化：仅在执行时显式开启才移除「电影」目录下的「系列」层级
+        "stripSeries": bool(strip_series),
     }
     generator = STRMGenerator(global_config, task_config, task_id=task_key, logger_=exe_logger)
     persist_to_db = bool(global_config.get("logToDb", False))

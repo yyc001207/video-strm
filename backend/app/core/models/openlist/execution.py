@@ -28,6 +28,7 @@ class OpenListExecution(Base):
     is_incremental: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, comment="是否增量更新")
     is_force: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否强制重新生成")
     strm_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="仅更新 strm（不重新下载已存在的字幕）")
+    strip_series: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="系列层路径优化（移除「电影」目录下的「系列」层级，默认关闭）")
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="耗时（秒）")
     log_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="日志文件路径")
     started_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, comment="开始执行时间")

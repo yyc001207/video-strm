@@ -25,6 +25,7 @@ export interface ExecutionStartParams {
   is_incremental: boolean
   is_force: boolean
   strm_only: boolean
+  strip_series: boolean
 }
 
 export interface ExecutionLaunchParams {
@@ -38,6 +39,7 @@ export interface BatchExecutionTask {
   is_incremental: boolean
   is_force: boolean
   strm_only: boolean
+  strip_series: boolean
 }
 
 export interface BatchExecutionParams {

@@ -74,6 +74,7 @@ export interface OpenListExecution {
   is_incremental: boolean
   is_force: boolean
   strm_only: boolean
+  strip_series: boolean
   duration_seconds: number | null
   log_path: string | null
   started_time: string | null

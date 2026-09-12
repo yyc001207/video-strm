@@ -14,6 +14,8 @@ const selectedTaskIds = ref<number[]>([])
 const isIncremental = ref(true)
 const isForce = ref(false)
 const strmOnly = ref(false)
+/** 系列层路径优化：默认关闭；开启后输出目录移除「电影」目录下的「系列」层级（strm 内链接仍为原始完整路径）。 */
+const stripSeries = ref(false)
 const starting = ref(false)
 const cancelling = ref(false)
 const loading = ref(false)
@@ -61,7 +63,8 @@ async function handleStart() {
         task_id: id,
         is_incremental: isIncremental.value,
         is_force: isForce.value,
-        strm_only: strmOnly.value
+        strm_only: strmOnly.value,
+        strip_series: stripSeries.value
       }))
     )
     // 跳转实时日志页：默认展示第一个任务的日志，可切换查看其他
@@ -183,6 +186,13 @@ defineExpose({ reload: load })
           <el-form-item v-if="isForce" label="仅更新 strm">
             <el-switch v-model="strmOnly" />
             <span class="execution__hint">开启后只更新 strm，不重新下载已存在的字幕</span>
+          </el-form-item>
+          <el-form-item label="系列层优化">
+            <el-switch v-model="stripSeries" />
+            <span class="execution__hint">
+              默认关闭；开启后输出目录移除「电影」目录下的「系列」层级（如 动画电影/哆啦A梦系列/剧场版 →
+              动画电影/剧场版），strm 内链接仍保留原始完整路径
+            </span>
           </el-form-item>
           <el-form-item>
             <div class="execution__actions">

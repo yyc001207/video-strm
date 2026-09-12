@@ -44,6 +44,10 @@ def parse_pause_times(raw) -> List[int]:
 
 
 class STRMGenerator:
+    # 系列层路径优化关键字：仅「电影」目录下的「系列」目录层级会被移除
+    MOVIE_KEYWORD = "电影"
+    SERIES_KEYWORD = "系列"
+
     def __init__(
         self,
         global_config: Dict[str, Any],
@@ -60,6 +64,8 @@ class STRMGenerator:
         self.video_exts = self._normalize_exts(global_config.get("videoExtensions", []))
         self.subtitle_exts = self._normalize_exts(global_config.get("subtitleExtensions", []))
         self.output_dir = task_config.get("outputDir") or "./output"
+        # 系列层路径优化：默认关闭，仅执行时显式开启才移除「电影」目录下的「系列」层级
+        self.strip_series = bool(task_config.get("stripSeries", False))
         self.task_paths = self._normalize_task_paths(task_config)
         # 限流参数：任务级优先，为 NULL/空则回退全局配置；全 0 或空则不暂停
         raw_count = task_config.get("pauseCount")
@@ -131,7 +137,8 @@ class STRMGenerator:
             return TaskStatusManager.is_cancelled(self.task_id)
         return False
 
-    def _get_output_path(self, item_path: str, base_path: str) -> str:
+    def _get_output_path_raw(self, item_path: str, base_path: str) -> str:
+        """相对输出路径（未应用「系列」层优化）。"""
         item_path = item_path.strip("/")
         base_path = base_path.strip("/")
         if item_path.startswith(base_path):
@@ -141,6 +148,33 @@ class STRMGenerator:
                 return ""
             return relative
         return Path(item_path).name
+
+    def _strip_series_layers(self, item_path: str, relative: str) -> str:
+        """移除相对路径中位于「电影」目录之下的「系列」目录层级（仅开启优化时调用）。
+
+        规则：
+        - 仅当完整云端路径中存在名称含「电影」的目录层级时才处理（非电影目录保持原样）
+        - 移除该「电影」层级之下、名称含「系列」的目录层级，其余层级结构保留
+        - strm 文件内的链接不受影响（仍使用完整原始路径）
+        """
+        if not relative:
+            return relative
+        full_layers = [s for s in str(item_path).strip("/").split("/") if s]
+        movie_idx = next((i for i, name in enumerate(full_layers) if self.MOVIE_KEYWORD in name), None)
+        if movie_idx is None:
+            return relative
+        series_names = {name for name in full_layers[movie_idx + 1:] if self.SERIES_KEYWORD in name}
+        if not series_names:
+            return relative
+        kept = [seg for seg in relative.split("/") if seg and seg not in series_names]
+        return "/".join(kept)
+
+    def _get_output_path(self, item_path: str, base_path: str) -> str:
+        """输出相对路径；开启系列层优化时按规则移除「xxx系列」目录层级。"""
+        relative = self._get_output_path_raw(item_path, base_path)
+        if self.strip_series:
+            relative = self._strip_series_layers(item_path, relative)
+        return relative
 
     async def _process_file(self, item: Dict, current_path: str, output_base: Path, force: bool, strm_only: bool, base_path: str):
         name = item.get("name", "")
@@ -270,6 +304,14 @@ class STRMGenerator:
             return
         output_relative = self._get_output_path(scan_path, base_path)
         output_relative = self._sanitize_path(output_relative)
+        # 数据安全保护：开启系列层优化后，若该扫描目录的相对路径因移除「系列」层而上移，
+        # 其清理目标会落到上一级目录，而目录级清理会删除「同级中不属于本扫描子树」的目录，
+        # 可能误删其他电影的目录。此类目录一律跳过清理（宁可残留失效文件，也不误删）。
+        if self.strip_series:
+            raw_relative = self._sanitize_path(self._get_output_path_raw(scan_path, base_path))
+            if raw_relative != output_relative:
+                self.logger.info(f"已启用系列层优化，跳过该目录的失效清理（避免误删同级目录）: {scan_path}")
+                return
         current_dir = output_base / output_relative
         try:
             current_resolved = current_dir.resolve()

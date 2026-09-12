@@ -143,6 +143,8 @@ class OpenListBatchTask(BaseModel):
     is_incremental: bool = True
     is_force: bool = False
     strm_only: bool = False
+    # 系列层路径优化（移除「电影」目录下的「系列」层级），默认关闭
+    strip_series: bool = False
 
 
 class OpenListExecutionCreate(BaseModel):
@@ -155,6 +157,7 @@ class OpenListExecutionCreate(BaseModel):
     is_incremental: bool = True
     is_force: bool = False
     strm_only: bool = False
+    strip_series: bool = False
 
 
 class OpenListExecutionBatchCreate(BaseModel):
@@ -225,6 +228,7 @@ class OpenListExecutionResponse(BaseModel):
     is_incremental: bool = True
     is_force: bool = False
     strm_only: bool = False
+    strip_series: bool = False
     duration_seconds: Optional[int] = None
     log_path: Optional[str] = None
     started_time: Optional[datetime] = None
