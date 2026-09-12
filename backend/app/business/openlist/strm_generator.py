@@ -176,6 +176,28 @@ class STRMGenerator:
             relative = self._strip_series_layers(item_path, relative)
         return relative
 
+    @staticmethod
+    def _add_expected_dir(expected_dirs: Set[str], relative: str):
+        """把一个云端目录的本地相对路径及其所有上级路径加入「本地应存在目录」集合。"""
+        if not relative:
+            return
+        parts = [p for p in str(relative).split("/") if p]
+        for i in range(1, len(parts) + 1):
+            expected_dirs.add("/".join(parts[:i]))
+
+    def _register_expected_dir(self, expected_dirs: Set[str], dir_path: str, base_path: str):
+        """登记云端目录在本地对应的目录层级（含原始路径与优化后路径两种形态）。
+
+        - 原始路径形态：未开启优化时生成的旧结构（如 ``A/xxx系列/B``）不应被误删
+        - 优化后路径形态：开启优化时生成的新结构（如 ``A/B``）
+        两者都登记后，开关切换产生的新旧目录结构可以共存而不被失效清理删除。
+        """
+        raw_relative = self._sanitize_path(self._get_output_path_raw(dir_path, base_path))
+        self._add_expected_dir(expected_dirs, raw_relative)
+        if self.strip_series:
+            optimized = self._sanitize_path(self._get_output_path(dir_path, base_path))
+            self._add_expected_dir(expected_dirs, optimized)
+
     async def _process_file(self, item: Dict, current_path: str, output_base: Path, force: bool, strm_only: bool, base_path: str):
         name = item.get("name", "")
         file_ext = Path(name).suffix.lower()
@@ -229,17 +251,19 @@ class STRMGenerator:
 
     IGNORE_EXTS = {".nfo", ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".svg", ".ico", ".mp3"}
 
-    async def _scan_and_process(self, scan_path: str, output_base: Path, force: bool, strm_only: bool, base_path: str, cloud_files: Set[str]):
+    async def _scan_and_process(self, scan_path: str, output_base: Path, force: bool, strm_only: bool, base_path: str, cloud_files: Set[str], expected_local_dirs: Set[str] = None):
         if self._cancelled():
             return
+        if expected_local_dirs is None:
+            expected_local_dirs = set()
         try:
             result = await self.api.list_files("/" + scan_path)
             items = result.get("content") or []
         except Exception as e:
-            self.logger.error(f"扫描失败 {scan_path}: {e}，清理本地残留")
-            self._cleanup_current_dir(output_base, set(), base_path, scan_path, set())
+            # 扫描失败（网络抖动/权限异常等）不做失效清理：此时云端列表为空，
+            # 清理会把本地已生成的文件与目录整体删除，风险远大于残留。
+            self.logger.error(f"扫描失败 {scan_path}: {e}，跳过该目录的失效清理")
             return
-        cloud_dir_names = set()
         for item in items:
             if not item.get("is_dir", False):
                 item_name = item.get("name", "")
@@ -252,16 +276,17 @@ class STRMGenerator:
                 cloud_files.add(relative_path)
             else:
                 dir_name = item.get("name", "")
-                cloud_dir_names.add(self._sanitize_path(dir_name))
+                dir_path = item.get("path", "").strip("/") or f"{scan_path}/{dir_name}"
+                self._register_expected_dir(expected_local_dirs, dir_path, base_path)
         for item in items:
             if item.get("is_dir", False):
                 subdir_name = item.get("name", "")
                 subdir_path = item.get("path", "").strip("/") or f"{scan_path}/{subdir_name}"
                 sub_cloud_files = set()
-                await self._scan_and_process(subdir_path, output_base, force, strm_only, base_path, sub_cloud_files)
+                await self._scan_and_process(subdir_path, output_base, force, strm_only, base_path, sub_cloud_files, expected_local_dirs)
                 if sub_cloud_files:
                     cloud_files.update(sub_cloud_files)
-        self._cleanup_current_dir(output_base, cloud_files, base_path, scan_path, cloud_dir_names)
+        self._cleanup_current_dir(output_base, cloud_files, base_path, scan_path, expected_local_dirs)
         # 顺序处理文件（原为 asyncio.gather 并发）；每处理 pause_count 个文件限流暂停一次，
         # 随机暂停 pause_times 列表中的一个时间，控制对服务器的请求频率。
         files = [item for item in items if not item.get("is_dir", False)]
@@ -299,7 +324,7 @@ class STRMGenerator:
         except Exception as e:
             self.logger.error(f"删除目录失败 {target}: {e}")
 
-    def _cleanup_current_dir(self, output_base: Path, cloud_files: Set[str], base_path: str, scan_path: str, cloud_dir_names: Set[str] = None):
+    def _cleanup_current_dir(self, output_base: Path, cloud_files: Set[str], base_path: str, scan_path: str, expected_local_dirs: Set[str] = None):
         if self._cancelled():
             return
         output_relative = self._get_output_path(scan_path, base_path)
@@ -358,13 +383,24 @@ class STRMGenerator:
                     self.logger.info(f"删除已失效文件: {relative_str}")
                 except Exception as e:
                     self.logger.error(f"删除文件失败 {local_file}: {e}")
-        if cloud_dir_names is not None:
+        if expected_local_dirs is not None:
             for local_item in current_dir.iterdir():
-                if local_item.is_dir():
-                    sanitized_name = self._sanitize_path(local_item.name)
-                    if sanitized_name not in cloud_dir_names:
-                        self._safe_remove_dir(local_item, output_base)
-                        self.logger.info(f"删除已失效目录: {local_item}")
+                if not local_item.is_dir():
+                    continue
+                try:
+                    rel_dir = str(local_item.relative_to(output_base)).replace("\\", "/")
+                except ValueError:
+                    continue
+                rel_dir = self._sanitize_path(rel_dir)
+                # 期望目录集合按「本地相对路径」记录（含原始结构与优化后结构），
+                # 因此系列层优化导致的层级上移不会把已生成的目录判为失效目录。
+                if rel_dir in expected_local_dirs:
+                    continue
+                # 该目录是某个云端目录的上级（云端路径更深）：同样属于有效结构
+                if any(exp.startswith(rel_dir + "/") for exp in expected_local_dirs):
+                    continue
+                self._safe_remove_dir(local_item, output_base)
+                self.logger.info(f"删除已失效目录: {local_item}")
 
     def _cleanup_empty_dirs(self, output_base: Path):
         for dirpath, dirnames, filenames in os.walk(str(output_base), topdown=False):
