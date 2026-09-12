@@ -185,18 +185,22 @@ class STRMGenerator:
         for i in range(1, len(parts) + 1):
             expected_dirs.add("/".join(parts[:i]))
 
-    def _register_expected_dir(self, expected_dirs: Set[str], dir_path: str, base_path: str):
+    def _register_expected_dir(self, expected_dirs: Set[str], dir_path: str, base_path: str, alt_path: str = None):
         """登记云端目录在本地对应的目录层级（含原始路径与优化后路径两种形态）。
 
         - 原始路径形态：未开启优化时生成的旧结构（如 ``A/xxx系列/B``）不应被误删
         - 优化后路径形态：开启优化时生成的新结构（如 ``A/B``）
         两者都登记后，开关切换产生的新旧目录结构可以共存而不被失效清理删除。
+
+        ``alt_path`` 为备选云端路径（当接口返回的 ``path`` 与应用侧拼接的路径形态不一致时使用），
+        多登记一个期望目录只会更保守（宁可残留也不误删）。
         """
-        raw_relative = self._sanitize_path(self._get_output_path_raw(dir_path, base_path))
-        self._add_expected_dir(expected_dirs, raw_relative)
-        if self.strip_series:
-            optimized = self._sanitize_path(self._get_output_path(dir_path, base_path))
-            self._add_expected_dir(expected_dirs, optimized)
+        for candidate in (dir_path, alt_path):
+            if not candidate:
+                continue
+            self._add_expected_dir(expected_dirs, self._sanitize_path(self._get_output_path_raw(candidate, base_path)))
+            if self.strip_series:
+                self._add_expected_dir(expected_dirs, self._sanitize_path(self._get_output_path(candidate, base_path)))
 
     async def _process_file(self, item: Dict, current_path: str, output_base: Path, force: bool, strm_only: bool, base_path: str):
         name = item.get("name", "")
@@ -251,9 +255,10 @@ class STRMGenerator:
 
     IGNORE_EXTS = {".nfo", ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".svg", ".ico", ".mp3"}
 
-    async def _scan_and_process(self, scan_path: str, output_base: Path, force: bool, strm_only: bool, base_path: str, cloud_files: Set[str], expected_local_dirs: Set[str] = None):
+    async def _scan_and_process(self, scan_path: str, output_base: Path, force: bool, strm_only: bool, base_path: str, cloud_files: Set[str], expected_local_dirs: Set[str] = None) -> bool:
+        """扫描并处理一个目录；返回该子树是否扫描完整（任一子目录扫描失败即返回 False）。"""
         if self._cancelled():
-            return
+            return True
         if expected_local_dirs is None:
             expected_local_dirs = set()
         try:
@@ -262,8 +267,8 @@ class STRMGenerator:
         except Exception as e:
             # 扫描失败（网络抖动/权限异常等）不做失效清理：此时云端列表为空，
             # 清理会把本地已生成的文件与目录整体删除，风险远大于残留。
-            self.logger.error(f"扫描失败 {scan_path}: {e}，跳过该目录的失效清理")
-            return
+            self.logger.error(f"扫描失败 {scan_path}: {e}，跳过该目录及其上级的失效清理")
+            return False
         for item in items:
             if not item.get("is_dir", False):
                 item_name = item.get("name", "")
@@ -274,19 +279,29 @@ class STRMGenerator:
                 if file_ext in self.video_exts:
                     relative_path = str(relative_path).rsplit(".", 1)[0] + ".strm"
                 cloud_files.add(relative_path)
-            else:
-                dir_name = item.get("name", "")
-                dir_path = item.get("path", "").strip("/") or f"{scan_path}/{dir_name}"
-                self._register_expected_dir(expected_local_dirs, dir_path, base_path)
+        subdirs = []
         for item in items:
-            if item.get("is_dir", False):
-                subdir_name = item.get("name", "")
-                subdir_path = item.get("path", "").strip("/") or f"{scan_path}/{subdir_name}"
-                sub_cloud_files = set()
-                await self._scan_and_process(subdir_path, output_base, force, strm_only, base_path, sub_cloud_files, expected_local_dirs)
-                if sub_cloud_files:
-                    cloud_files.update(sub_cloud_files)
-        self._cleanup_current_dir(output_base, cloud_files, base_path, scan_path, expected_local_dirs)
+            if not item.get("is_dir", False):
+                continue
+            dir_name = item.get("name", "")
+            # 递归用的路径优先取接口返回的 path，缺失时按扫描路径拼接
+            dir_path = item.get("path", "").strip("/") or f"{scan_path}/{dir_name}"
+            subdirs.append(dir_path)
+            self._register_expected_dir(expected_local_dirs, dir_path, base_path, alt_path=f"{scan_path}/{dir_name}" if dir_name else None)
+        incomplete = False
+        for subdir_path in subdirs:
+            sub_cloud_files = set()
+            sub_complete = await self._scan_and_process(subdir_path, output_base, force, strm_only, base_path, sub_cloud_files, expected_local_dirs)
+            if sub_cloud_files:
+                cloud_files.update(sub_cloud_files)
+            if not sub_complete:
+                incomplete = True
+        if incomplete:
+            # 子树中存在扫描失败的目录：该子树的文件/目录列表不完整，任何失效清理都可能误删，
+            # 因此本层也一并跳过清理（宁可残留）。
+            self.logger.warning(f"子树存在扫描失败的目录，跳过该目录的失效清理: {scan_path}")
+        else:
+            self._cleanup_current_dir(output_base, cloud_files, base_path, scan_path, expected_local_dirs)
         # 顺序处理文件（原为 asyncio.gather 并发）；每处理 pause_count 个文件限流暂停一次，
         # 随机暂停 pause_times 列表中的一个时间，控制对服务器的请求频率。
         files = [item for item in items if not item.get("is_dir", False)]
@@ -298,6 +313,7 @@ class STRMGenerator:
                 delay = random.choice(self.pause_times)
                 self.logger.info(f"[限流] 已处理 {count} 个文件，暂停 {delay}s")
                 await asyncio.sleep(delay)
+        return not incomplete
 
     def _safe_remove_dir(self, target: Path, output_base: Path):
         """安全删除目录：先确认目标在输出根内，改名后再删除（同文件系统内原子性）。
